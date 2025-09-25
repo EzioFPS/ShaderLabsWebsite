@@ -1,0 +1,88 @@
+<svg width="1024" height="320" viewBox="0 0 1024 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Black background -->
+  <rect width="1024" height="320" fill="#000000"/>
+
+  <!-- SHADER text -->
+  <g>
+    <!-- S -->
+    <path d="M48 48C48 26.9086 65.9086 9 87 9H159C180.091 9 198 26.9086 198 48V72C198 93.0914 180.091 111 159 111H87C65.9086 111 48 93.0914 48 72V48Z" fill="url(#gradient1)"/>
+    <path d="M87 48H159V72H87V48Z" fill="#000000"/>
+    <path d="M87 72C87 93.0914 104.909 111 126 111H159V135H126C104.909 135 87 117.091 87 96V72Z" fill="url(#gradient1)"/>
+
+    <!-- H -->
+    <rect x="208" y="48" width="50" height="135" fill="url(#gradient1)"/>
+    <rect x="308" y="48" width="50" height="135" fill="url(#gradient1)"/>
+    <rect x="208" y="96" width="150" height="39" fill="url(#gradient1)"/>
+
+    <!-- A -->
+    <path d="M368 183L418 48H468L518 183H468L458 153H428L418 183H368ZM443 105L433 135H453L443 105Z" fill="url(#gradient1)"/>
+
+    <!-- D -->
+    <rect x="528" y="48" width="50" height="135" fill="url(#gradient1)"/>
+    <path d="M578 48H628C649.091 48 667 65.9086 667 87V144C667 165.091 649.091 183 628 183H578V48Z" fill="url(#gradient1)"/>
+    <rect x="578" y="87" width="89" height="57" fill="#000000"/>
+
+    <!-- E -->
+    <rect x="677" y="48" width="50" height="135" fill="url(#gradient1)"/>
+    <rect x="677" y="48" width="100" height="39" fill="url(#gradient1)"/>
+    <rect x="677" y="96" width="80" height="39" fill="url(#gradient1)"/>
+    <rect x="677" y="144" width="100" height="39" fill="url(#gradient1)"/>
+
+    <!-- R -->
+    <rect x="787" y="48" width="50" height="135" fill="url(#gradient1)"/>
+    <path d="M837 48H887C908.091 48 926 65.9086 926 87V105C926 126.091 908.091 144 887 144H837V48Z" fill="url(#gradient1)"/>
+    <rect x="837" y="87" width="89" height="18" fill="#000000"/>
+    <path d="M887 144L926 183H876L837 144H887Z" fill="url(#gradient1)"/>
+  </g>
+
+  <!-- LABS text -->
+  <g>
+    <!-- L -->
+    <rect x="48" y="192" width="50" height="135" fill="url(#gradient2)"/>
+    <rect x="48" y="288" width="100" height="39" fill="url(#gradient2)"/>
+
+    <!-- A -->
+    <path d="M158 327L208 192H258L308 327H258L248 297H218L208 327H158ZM233 249L223 279H243L233 249Z" fill="url(#gradient2)"/>
+
+    <!-- B -->
+    <rect x="318" y="192" width="50" height="135" fill="url(#gradient2)"/>
+    <path d="M368 192H418C439.091 192 457 209.909 457 231V249C457 270.091 439.091 288 418 288H368V192Z" fill="url(#gradient2)"/>
+    <path d="M368 288H428C449.091 288 467 305.909 467 327V327C467 348.091 449.091 366 428 366H368V288Z" fill="url(#gradient2)"/>
+    <rect x="368" y="231" width="89" height="18" fill="#000000"/>
+    <rect x="368" y="327" width="99" height="18" fill="#000000"/>
+
+    <!-- S -->
+    <path d="M477 192C477 170.909 494.909 153 516 153H588C609.091 153 627 170.909 627 192V216C627 237.091 609.091 255 588 255H516C494.909 255 477 237.091 477 216V192Z" fill="url(#gradient2)"/>
+    <path d="M516 192H588V216H516V192Z" fill="#000000"/>
+    <path d="M516 216C516 237.091 533.909 255 555 255H588V279H555C533.909 279 516 261.091 516 240V216Z" fill="url(#gradient2)"/>
+  </g>
+
+  <!-- Circular elements on the right -->
+  <g>
+    <ellipse cx="742" cy="115" rx="60" ry="80" fill="#2D1B69" opacity="0.8"/>
+    <ellipse cx="822" cy="115" rx="60" ry="80" fill="#4C1D95" opacity="0.9"/>
+    <ellipse cx="902" cy="115" rx="60" ry="80" fill="url(#gradient3)"/>
+
+    <!-- Small accent rectangles -->
+    <rect x="842" y="175" width="20" height="20" fill="#F59E0B" rx="4"/>
+    <rect x="872" y="175" width="20" height="20" fill="#F59E0B" rx="4"/>
+  </g>
+
+  <defs>
+    <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#A78BFA"/>
+      <stop offset="50%" style="stop-color:#8B5CF6"/>
+      <stop offset="100%" style="stop-color:#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#C4B5FD"/>
+      <stop offset="50%" style="stop-color:#A78BFA"/>
+      <stop offset="100%" style="stop-color:#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="gradient3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6"/>
+      <stop offset="50%" style="stop-color:#7C3AED"/>
+      <stop offset="100%" style="stop-color:#6D28D9"/>
+    </linearGradient>
+  </defs>
+</svg>
