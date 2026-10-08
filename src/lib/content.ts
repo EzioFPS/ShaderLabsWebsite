@@ -12,7 +12,7 @@ export const company = {
     line2: "Ayodhya Nagar, Nagpur 440024",
     line3: "Maharashtra, India",
   },
-  clientCountries: ["Mexico", "Uruguay", "Thailand", "Singapore"],
+  clientCountries: ["Mexico", "Uruguay", "Thailand", "Singapore", "India"],
 };
 
 export const nav = [
@@ -78,7 +78,6 @@ export const services: Service[] = [
       "For film, games and real-time 3D: the shaders, tools and pipelines between your artists and the engine or renderer. Asset processing, look development, automation inside 3D tools, and the glue that keeps a production moving. It's where Shader Labs started.",
     deliverables: ["Shaders & real-time effects", "Asset import & export pipelines", "Tools & plugins for 3D software", "Render & build automation"],
     usefulWhen: "Your artists spend more time fighting exports, naming rules and broken builds than making the work.",
-    image: { src: "/work/baoli-ingame-3.jpg", caption: "CRT screen shader and lighting from Baoli, our own game" },
   },
   {
     slug: "interactive",
@@ -176,7 +175,7 @@ export const caseStudies: CaseStudy[] = [
     logo: { src: "/clients/artist-vanguard.png", width: 1600, height: 107 },
     shot: { src: "/work/av-home.png", width: 1440, height: 770 },
     industry: "Music label",
-    period: "Past engagement",
+    period: "Ongoing",
     role: "Tech partner",
     headline: "Website, backend, CRM and a Discord bot for a global label.",
     summary:
@@ -205,7 +204,7 @@ export type WorkRow = {
 
 export const workIndex: WorkRow[] = [
   { href: "/work/whole-story-distribution", title: "Whole Story Distribution", kind: "Client", what: "Platform, portal, backend, CRM", period: "Ongoing", preview: "wsd" },
-  { href: "/work/artist-vanguard", title: "Artist Vanguard", kind: "Client", what: "Website, backend, CRM, Discord bot", period: "Past", preview: "av" },
+  { href: "/work/artist-vanguard", title: "Artist Vanguard", kind: "Client", what: "Website, backend, CRM, Discord bot", period: "Ongoing", preview: "av" },
   { title: "Baoli", kind: "Own product", what: "Psychological horror game", period: "In development", preview: "baoli" },
   { title: "IndiaGamelab", kind: "Own product", what: "Game development school", period: "2024", preview: "igl" },
 ];
@@ -215,7 +214,7 @@ export const workIndex: WorkRow[] = [
 // Portraits live in /public/team/ (black & white, 3:4).
 export const founders = [
   { name: "Anshul Patalbansi", role: "Head of Business Operations", photo: "/team/anshul.webp" },
-  { name: "Shashank Patalbansi", role: "Head of Systems & Backend", photo: "/team/shashank.webp" },
+  { name: "Shashank Patalbansi", role: "Head of Engineering", photo: "/team/shashank.webp" },
 ];
 
 export const contactOptions = {

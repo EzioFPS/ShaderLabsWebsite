@@ -91,7 +91,7 @@ export default function ServicesPage() {
       </section>
 
       {/* Embedded team */}
-      <section id="tech-team" className="scroll-mt-24 border-y border-line bg-surface">
+      <section id="tech-team" className="scroll-mt-24 border-y border-line">
         <div className="container-x section grid gap-x-6 gap-y-12 md:grid-cols-12">
           <div className="md:col-span-3">
             <h2 className="t-section">How most clients work with us</h2>

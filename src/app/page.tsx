@@ -7,6 +7,7 @@ import { ArrowRight } from "@/components/Icons";
 import { d, Lines } from "@/components/Lines";
 import { OrbitLabels } from "@/components/OrbitLabels";
 import { ShaderCanvas } from "@/components/ShaderCanvas";
+import { Typewriter } from "@/components/Typewriter";
 import { WorkIndex } from "@/components/WorkIndex";
 import { caseStudies, company, process, workIndex } from "@/lib/content";
 
@@ -66,13 +67,18 @@ export default function Home() {
         </div>
 
         <div
-          className="meta mt-10 grid grid-cols-1 gap-x-6 gap-y-2 border-t border-line pt-5 xs:grid-cols-2 lg:mt-12 lg:grid-cols-4"
+          className="meta mt-10 grid grid-cols-1 gap-x-6 gap-y-2 border-t border-line pt-5 xs:grid-cols-2 lg:mt-12 lg:grid-cols-[1fr_auto_1fr]"
           data-reveal="load"
           style={d(700)}
         >
-          <span>Software studio, est. {company.founded}</span>
-          <span>In-house tech team at Whole Story Distribution</span>
-          <span className="hidden md:block">Clients in {company.clientCountries.join(", ")}</span>
+          <span>Shader Labs Private Limited, est. {company.founded}</span>
+          <Typewriter
+            className="hidden md:block lg:whitespace-nowrap lg:text-center"
+            phrases={[
+              ...company.clientCountries.map((country) => `Clients in ${country}`),
+              "Clients all around the world",
+            ]}
+          />
           <span className="flex flex-wrap items-center gap-x-2 lg:justify-end">
             <span className="status-dot" /> Open to new projects
           </span>
