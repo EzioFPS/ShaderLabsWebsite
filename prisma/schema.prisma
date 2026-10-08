@@ -1,0 +1,38 @@
+// Shader Labs website database: Postgres (hosted on Neon's free tier in production).
+// Tables are created/updated on start by `prisma db push` (see package.json).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Enquiry {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  name        String
+  email       String
+  company     String?
+  website     String?
+  phone       String?
+  services    String   @default("[]") // JSON array of service labels
+  budget      String?
+  message     String
+
+  // new | contacted | won | closed | spam
+  status      String   @default("new")
+  // pending | sent | failed | skipped
+  emailStatus String   @default("pending")
+  emailError  String?
+
+  ip          String?
+  userAgent   String?
+
+  @@index([createdAt])
+  @@index([status])
+}

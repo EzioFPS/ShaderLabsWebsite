@@ -1,6 +1,28 @@
+# Render Blueprint: Dashboard > New > Blueprint, pick this repo.
+# Values marked `sync: false` are asked for once when the Blueprint is created.
 services:
   - type: web
-    name: shaderlabs-website
-    env: static
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
+    name: shaderlabs-web
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm start # prestart creates/updates the database tables
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL # Neon Postgres connection string
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ADMIN_PASSWORD # password for /admin
+        sync: false
+      - key: ADMIN_SECRET
+        generateValue: true
+      - key: MAIL_FROM
+        value: Shader Labs Website <website@shaderlabs.in>
+      - key: CONTACT_TO
+        value: mail@shaderlabs.in
+      - key: SITE_URL # e.g. https://shaderlabs-web.onrender.com, later https://shaderlabs.in
+        sync: false

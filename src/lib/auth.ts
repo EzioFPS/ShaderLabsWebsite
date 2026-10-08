@@ -1,0 +1,55 @@
+import "server-only";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { cookies } from "next/headers";
+
+export const SESSION_COOKIE = "sl_admin";
+const SESSION_DAYS = 7;
+
+function secret() {
+  const s = process.env.ADMIN_SECRET;
+  if (!s || s.length < 16) throw new Error("ADMIN_SECRET must be set (16+ characters).");
+  return s;
+}
+
+function sign(payload: string) {
+  return createHmac("sha256", secret()).update(payload).digest("base64url");
+}
+
+function safeEqual(a: string, b: string) {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
+export function checkPassword(input: string) {
+  const expected = process.env.ADMIN_PASSWORD;
+  if (!expected || expected === "change-me") return false;
+  // Compare HMACs so lengths always match.
+  return safeEqual(sign(`pw:${input}`), sign(`pw:${expected}`));
+}
+
+export function createSessionToken() {
+  const exp = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
+  return `${exp}.${sign(`session:${exp}`)}`;
+}
+
+function verifySessionToken(token: string | undefined) {
+  if (!token) return false;
+  const [expStr, sig] = token.split(".");
+  const exp = Number(expStr);
+  if (!exp || !sig || exp < Date.now()) return false;
+  return safeEqual(sig, sign(`session:${exp}`));
+}
+
+export async function isAdmin() {
+  const store = await cookies();
+  return verifySessionToken(store.get(SESSION_COOKIE)?.value);
+}
+
+export const sessionCookieOptions = {
+  httpOnly: true,
+  sameSite: "strict" as const,
+  secure: process.env.NODE_ENV === "production" && process.env.SITE_URL?.startsWith("https"),
+  path: "/",
+  maxAge: SESSION_DAYS * 24 * 60 * 60,
+};
