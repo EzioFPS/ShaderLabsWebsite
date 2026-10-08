@@ -24,5 +24,5 @@ services:
         value: Shader Labs Website <website@shaderlabs.in>
       - key: CONTACT_TO
         value: mail@shaderlabs.in
-      - key: SITE_URL # e.g. https://shaderlabs-web.onrender.com, later https://shaderlabs.in
-        sync: false
+      - key: SITE_URL # public address: SEO metadata, sitemap, secure admin cookie
+        value: https://www.shaderlabs.in
