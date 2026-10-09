@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { getDeposits, getPartners, partnerName, toCents, usd } from "@/lib/billing";
+import { depositClients, getDeposits, getPartners, getReceivables, partnerName, toCents, usd } from "@/lib/billing";
 import { db } from "@/lib/db";
 import { ClientForm } from "./ClientForm";
 
@@ -8,11 +8,13 @@ export default async function ClientsPage() {
   let error: string | null = null;
   let rows: { id: string; name: string; email?: string; country?: string; status: string; paid: number; invoices: number }[] = [];
   try {
-    const [partners, deposits, counts] = await Promise.all([
+    const [partners, deposits, receivables, counts] = await Promise.all([
       getPartners(),
       getDeposits(),
+      getReceivables(),
       db.invoice.groupBy({ by: ["clientAccountId"], _count: { _all: true } }),
     ]);
+    const clientOf = depositClients(deposits, receivables, new Set(partners.map((p) => p.id)));
     rows = partners
       .map((p) => ({
         id: p.id,
@@ -20,9 +22,7 @@ export default async function ClientsPage() {
         email: p.business_details?.email,
         country: p.business_details?.physical_address?.country,
         status: p.status,
-        paid: deposits
-          .filter((d) => d.status === "completed" && d.currency === "USD" && (d.to?.account_id === p.id || d.from?.account_id === p.id))
-          .reduce((s, d) => s + toCents(d.amount), 0),
+        paid: deposits.filter((d) => clientOf.get(d.id) === p.id).reduce((s, d) => s + toCents(d.amount), 0),
         invoices: counts.find((c) => c.clientAccountId === p.id)?._count._all ?? 0,
       }))
       .sort((a, b) => b.paid - a.paid || a.name.localeCompare(b.name));

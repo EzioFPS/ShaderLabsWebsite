@@ -106,12 +106,41 @@ export const getUsdInrRate = () =>
 
 export const partnerName = (p?: XAccount) => p?.business_details?.legal_name || p?.nickname || "Unknown client";
 
-/** USD a client has paid in that hasn't been matched to an invoice yet. */
-export function unmatchedFunds(partnerId: string, deposits: XDeposit[], receivables: XReceivable[]) {
-  const paid = deposits
-    .filter((d) => d.status === "completed" && d.currency === "USD" && (d.to?.account_id === partnerId || d.from?.account_id === partnerId))
-    .reduce((n, d) => n + toCents(d.amount), 0);
-  const matched = receivables.filter((r) => r.account_id === partnerId).reduce((n, r) => n + toCents(r.amount_reconciled), 0);
+const isReceived = (d: XDeposit) => d.status === "completed" && d.currency === "USD" && toCents(d.amount) > 0;
+
+/**
+ * Which client each payment came from. Xflow books payments to the account's own USD receiving
+ * account (not to the client), so a payment is tied to a client through the invoice it settled:
+ * the reconciled invoice with the same amount, closest in time. A payment sent straight to a
+ * client's own virtual account is tied to that client directly.
+ */
+export function depositClients(deposits: XDeposit[], receivables: XReceivable[], partnerIds: Set<string>) {
+  const out = new Map<string, string>();
+  const unused = receivables.filter((r) => toCents(r.amount_reconciled) > 0);
+  for (const d of deposits.filter(isReceived).sort((a, b) => a.created - b.created)) {
+    const direct = [d.to?.account_id, d.from?.account_id].find((id) => id && partnerIds.has(id));
+    if (direct) {
+      out.set(d.id, direct);
+      continue;
+    }
+    const cents = toCents(d.amount);
+    let best = -1;
+    for (let i = 0; i < unused.length; i++) {
+      if (toCents(unused[i].amount_reconciled) !== cents) continue;
+      if (best < 0 || Math.abs(unused[i].created - d.created) < Math.abs(unused[best].created - d.created)) best = i;
+    }
+    if (best >= 0) out.set(d.id, unused.splice(best, 1)[0].account_id);
+  }
+  return out;
+}
+
+/**
+ * USD received that hasn't been matched to an invoice yet. Payments land in one shared account,
+ * so this is the account-wide amount: everything received minus everything already matched.
+ */
+export function unmatchedFunds(_partnerId: string, deposits: XDeposit[], receivables: XReceivable[]) {
+  const paid = deposits.filter(isReceived).reduce((n, d) => n + toCents(d.amount), 0);
+  const matched = receivables.reduce((n, r) => n + toCents(r.amount_reconciled), 0);
   return Math.max(0, paid - matched);
 }
 
@@ -126,7 +155,10 @@ export function invoiceState(inv: Pick<Invoice, "status" | "dueDate" | "totalCen
   if (r.status === "draft" || r.status === "verifying") return { key: "review", label: "Xflow reviewing", tone: "neutral" };
   const total = toCents(r.invoice?.amount) || inv.totalCents;
   const done = toCents(r.amount_reconciled);
-  if (done >= total && total > 0) return { key: "paid", label: "Paid", tone: "good" };
+  // "completed" is Xflow's settled state. The settled amount is after Xflow's fee, so it can be a
+  // little under the invoice total; fully reconciled against its maximum also counts as paid.
+  const max = toCents(r.amount_maximum_reconcilable);
+  if (r.status === "completed" || (done > 0 && (done >= total || (max > 0 && done >= max)))) return { key: "paid", label: "Paid", tone: "good" };
   if (unmatchedCents > 0) return { key: "ready", label: "Payment received", tone: "good" };
   if (done > 0) return { key: "partial", label: "Part paid", tone: "warning" };
   if (inv.dueDate.toISOString().slice(0, 10) < new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })) return { key: "overdue", label: "Overdue", tone: "critical" };
@@ -230,9 +262,10 @@ export async function loadDashboard(range: Range) {
   const lastMonth = monthly[monthly.length - 2]?.received ?? 0;
 
   // Per-client totals within the range
+  const clientOf = depositClients(deposits, receivables, new Set(byPartner.keys()));
   const clientTotals = new Map<string, number>();
   for (const d of received.filter((d) => inRange(d.created))) {
-    const id = d.to?.account_id && byPartner.has(d.to.account_id) ? d.to.account_id : (d.from?.account_id ?? "unknown");
+    const id = clientOf.get(d.id) ?? "unknown";
     clientTotals.set(id, (clientTotals.get(id) ?? 0) + toCents(d.amount));
   }
   const byClient = [...clientTotals.entries()]
@@ -247,7 +280,7 @@ export async function loadDashboard(range: Range) {
     const funds = r ? unmatchedFunds(r.account_id, deposits, receivables) : 0;
     const state = invoiceState(inv, r, funds);
     const paidCents = r ? toCents(r.amount_reconciled) : 0;
-    return { inv, r, state, paidCents, dueCents: Math.max(0, inv.totalCents - paidCents) };
+    return { inv, r, state, paidCents, dueCents: state.key === "paid" ? 0 : Math.max(0, inv.totalCents - paidCents) };
   });
   const open = rows.filter((x) => !["paid", "cancelled", "draft"].includes(x.state.key));
   const outstanding = open.reduce((s, x) => s + x.dueCents, 0);
@@ -282,7 +315,7 @@ export async function loadDashboard(range: Range) {
     byClient,
     statusCounts,
     invoices: rows,
-    recentDeposits: [...received].sort((a, b) => b.created - a.created).slice(0, 8).map((d) => ({ ...d, client: partnerName(byPartner.get(d.to?.account_id ?? d.from?.account_id ?? "")) })),
+    recentDeposits: [...received].sort((a, b) => b.created - a.created).slice(0, 8).map((d) => ({ ...d, client: partnerName(byPartner.get(clientOf.get(d.id) ?? "")) })),
     recentPayouts: [...payouts].sort((a, b) => b.created - a.created).slice(0, 8),
     partnersCount: partners.length,
   };

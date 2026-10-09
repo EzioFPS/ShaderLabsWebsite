@@ -70,7 +70,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             {[
               ["Paid against invoice", usd(paidCents)],
               ["Received, waiting", usd(waitingCents)],
-              ["Still due", usd(Math.max(0, inv.totalCents - paidCents))],
+              // Paid in full may settle a little under the total (Xflow's fee), so nothing is due then.
+              ["Still due", usd(state.key === "paid" ? 0 : Math.max(0, inv.totalCents - paidCents))],
             ].map(([k, v]) => (
               <div key={k} className="card p-5">
                 <p className="text-sm text-muted">{k}</p>
