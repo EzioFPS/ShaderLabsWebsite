@@ -73,6 +73,9 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             <h1 className="display display-md mt-4">Enquiries</h1>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Link href="/admin/mail" className="btn btn-primary btn-sm">
+              Mail
+            </Link>
             <a href="/admin/export" className="btn btn-ghost btn-sm">
               Export CSV
             </a>
@@ -205,12 +208,12 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                             Save
                           </button>
                         </form>
-                        <a
-                          href={`mailto:${e.email}?subject=${encodeURIComponent("Re: your enquiry to Shader Labs")}`}
+                        <Link
+                          href={`/admin/mail?compose=new&to=${encodeURIComponent(e.email)}&subject=${encodeURIComponent("Re: your enquiry to Shader Labs")}`}
                           className="btn btn-primary btn-sm h-10"
                         >
                           Reply by email
-                        </a>
+                        </Link>
                       </div>
                     </div>
                   </details>

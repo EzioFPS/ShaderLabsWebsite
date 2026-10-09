@@ -44,6 +44,12 @@ Production mode: `npm run build` then `npm start`. `npm run dev:alt` runs a seco
 - `ADMIN_SECRET`: random string that signs the admin session cookie
 - `SITE_URL`: public URL of the site (SEO metadata, secure admin cookie)
 
+## Mailbox (mail@shaderlabs.in)
+
+`/admin/mail` is the team inbox (same admin login). Resend receives mail for shaderlabs.in (MX → Resend inbound) and calls `/api/mail/inbound` (webhook event `email.received`, verified with `RESEND_WEBHOOK_SECRET`); the inbox also catches up from Resend's API when opened. Sending, replies and forwards go out through Resend. Everything is stored in Neon (`MailMessage`, `MailAttachment`). `RESEND_API_KEY` must be a **full access** key (receiving needs it).
+
+The old Titan mailbox was copied in with `npm run import:titan` (IMAP, read-only; asks for the Titan password; `-- --scan` to only count). Re-running skips messages already imported.
+
 ## Hosting on Netlify (free)
 
 Netlify builds the site from this repo on every push to `main` (settings in `netlify.toml`). Pages are served from Netlify's CDN and the contact form and `/admin` run as Netlify Functions, so nothing sleeps. The database lives on Neon. Set the environment variables listed above in Netlify: Project configuration → Environment variables.

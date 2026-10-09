@@ -4,6 +4,8 @@ const nextConfig: NextConfig = {
   // Separate dev output so `next dev` can run next to a production server.
   distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   poweredByHeader: false,
+  // Mail compose uploads attachments through a server action (Netlify caps requests at ~6 MB).
+  experimental: { serverActions: { bodySizeLimit: "5mb" } },
   async redirects() {
     return [{ source: "/products", destination: "/work", permanent: true }];
   },

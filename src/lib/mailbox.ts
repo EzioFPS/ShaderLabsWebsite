@@ -1,0 +1,303 @@
+import "server-only";
+import { randomUUID } from "node:crypto";
+import type { MailMessage, Prisma } from "@prisma/client";
+import { db } from "@/lib/db";
+
+// The mail@shaderlabs.in mailbox: Resend receives and sends, Neon stores everything.
+
+export const MAILBOX_ADDRESS = "mail@shaderlabs.in";
+export const MAILBOX_FROM = process.env.MAILBOX_FROM || `Shader Labs <${MAILBOX_ADDRESS}>`;
+export const FOLDERS = ["inbox", "starred", "sent", "archive", "spam", "trash"] as const;
+export type Folder = (typeof FOLDERS)[number];
+export const MOVE_TARGETS = ["inbox", "archive", "spam", "trash"] as const;
+
+export type Address = { name?: string; address: string };
+
+const RESEND = "https://api.resend.com";
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+async function resend<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${RESEND}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json", ...init?.headers },
+    signal: AbortSignal.timeout(20_000),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Resend ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+  return res.json() as Promise<T>;
+}
+
+// ---------- addresses & text helpers ----------
+
+export function parseAddress(raw: string): Address {
+  const m = raw.trim().match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1].trim() || undefined, address: m[2].trim().toLowerCase() };
+  return { address: raw.trim().toLowerCase() };
+}
+
+export function parseAddressList(raw: string | string[] | null | undefined): Address[] {
+  if (!raw) return [];
+  const parts = Array.isArray(raw) ? raw : raw.split(/[,;\n]/);
+  return parts
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map(parseAddress)
+    .filter((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.address));
+}
+
+export const asAddresses = (v: Prisma.JsonValue): Address[] => (Array.isArray(v) ? (v as Address[]) : []);
+export const formatAddress = (a: Address) => (a.name ? `${a.name} <${a.address}>` : a.address);
+
+export function snippetOf(text?: string | null, html?: string | null) {
+  const src = text || (html ? html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ") : "");
+  return src
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
+export const normalizeSubject = (s: string) => s.replace(/^\s*((re|fw|fwd|aw|sv)\s*(\[\d+\])?\s*:\s*)+/i, "").trim().toLowerCase();
+
+const ids = (s?: string | null) => (s ? s.match(/<[^>]+>/g) ?? [] : []);
+
+// ---------- threading ----------
+
+// Same conversation = replies whose In-Reply-To/References point at a stored message;
+// fallback: a "Re:"-style subject with the same counterpart within 90 days.
+export async function resolveThreadKey(m: {
+  rfcMessageId?: string | null;
+  inReplyTo?: string | null;
+  references?: string | null;
+  subject: string;
+  counterpart: string;
+}) {
+  const refs = [...ids(m.inReplyTo), ...ids(m.references)];
+  if (refs.length) {
+    const parent = await db.mailMessage.findFirst({ where: { rfcMessageId: { in: refs } }, select: { threadKey: true } });
+    if (parent) return parent.threadKey;
+  }
+  const norm = normalizeSubject(m.subject);
+  if (norm && norm !== m.subject.trim().toLowerCase()) {
+    const since = new Date(Date.now() - 90 * 24 * 3600 * 1000);
+    const candidates = await db.mailMessage.findMany({
+      where: { date: { gte: since }, subject: { endsWith: norm, mode: "insensitive" } },
+      orderBy: { date: "desc" },
+      take: 25,
+      select: { threadKey: true, subject: true, fromAddress: true, to: true },
+    });
+    const hit = candidates.find(
+      (c) =>
+        normalizeSubject(c.subject) === norm &&
+        (c.fromAddress === m.counterpart || asAddresses(c.to).some((a) => a.address === m.counterpart)),
+    );
+    if (hit) return hit.threadKey;
+  }
+  return m.rfcMessageId || `t-${randomUUID()}`;
+}
+
+// ---------- receiving (Resend) ----------
+
+type ReceivedEmail = {
+  id: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  reply_to?: string[];
+  subject?: string;
+  html?: string | null;
+  text?: string | null;
+  headers?: Record<string, string>;
+  message_id?: string;
+  created_at: string;
+  authentication?: { spf?: string; dkim?: string; dmarc?: string } | null;
+  attachments?: { id: string; filename?: string; content_type?: string; content_disposition?: string | null; content_id?: string | null; size?: number }[];
+};
+
+const header = (h: Record<string, string> | undefined, name: string) => {
+  if (!h) return undefined;
+  const key = Object.keys(h).find((k) => k.toLowerCase() === name);
+  return key ? String(h[key]) : undefined;
+};
+
+/** Stores one received email (idempotent). Returns the stored message id. */
+export async function ingestReceivedEmail(emailId: string) {
+  const existing = await db.mailMessage.findUnique({ where: { externalId: emailId }, select: { id: true, complete: true } });
+  if (existing?.complete) return existing.id;
+
+  const e = await resend<ReceivedEmail>(`/emails/receiving/${emailId}?html_format=cid`);
+  const from = parseAddress(e.from);
+  const subject = e.subject ?? "";
+  const rfcMessageId = e.message_id || header(e.headers, "message-id") || null;
+  const inReplyTo = header(e.headers, "in-reply-to") ?? null;
+  const references = header(e.headers, "references") ?? null;
+  const spam = e.authentication?.dmarc === "fail" || (e.authentication?.spf === "fail" && e.authentication?.dkim === "fail");
+
+  let mailId = existing?.id;
+  if (!mailId) {
+    const threadKey = await resolveThreadKey({ rfcMessageId, inReplyTo, references, subject, counterpart: from.address });
+    const created = await db.mailMessage.create({
+      data: {
+        date: new Date(e.created_at),
+        folder: spam ? "spam" : "inbox",
+        direction: "in",
+        source: "resend",
+        externalId: e.id,
+        rfcMessageId,
+        inReplyTo,
+        references,
+        threadKey,
+        fromAddress: from.address,
+        fromName: from.name,
+        to: parseAddressList(e.to),
+        cc: parseAddressList(e.cc),
+        bcc: parseAddressList(e.bcc),
+        replyTo: parseAddressList(e.reply_to),
+        subject,
+        text: e.text ?? null,
+        html: e.html ?? null,
+        snippet: snippetOf(e.text, e.html),
+        hasAttachments: Boolean(e.attachments?.length),
+        complete: !e.attachments?.length,
+      },
+    });
+    mailId = created.id;
+  }
+
+  if (e.attachments?.length) {
+    const have = new Set((await db.mailAttachment.findMany({ where: { mailId }, select: { filename: true } })).map((a) => a.filename));
+    for (const a of e.attachments) {
+      const filename = a.filename || "attachment";
+      if (have.has(filename) || (a.size ?? 0) > MAX_ATTACHMENT_BYTES) continue;
+      const meta = await resend<{ download_url: string }>(`/emails/receiving/${emailId}/attachments/${a.id}`);
+      const file = await fetch(meta.download_url, { signal: AbortSignal.timeout(30_000) });
+      if (!file.ok) throw new Error(`attachment download ${file.status}`);
+      const data = Buffer.from(await file.arrayBuffer());
+      await db.mailAttachment.create({
+        data: {
+          mailId,
+          filename,
+          contentType: a.content_type || "application/octet-stream",
+          size: data.length,
+          contentId: a.content_id ? a.content_id.replace(/^<|>$/g, "") : null,
+          inline: a.content_disposition === "inline",
+          data,
+        },
+      });
+    }
+    await db.mailMessage.update({ where: { id: mailId }, data: { complete: true } });
+  }
+  return mailId;
+}
+
+let lastSync = 0;
+/** Catches up on anything the webhook missed (Resend keeps received mail only briefly). */
+export async function syncReceived(force = false) {
+  if (!process.env.RESEND_API_KEY || (!force && Date.now() - lastSync < 60_000)) return 0;
+  lastSync = Date.now();
+  const list = await resend<{ data: { id: string }[] }>(`/emails/receiving?limit=50`);
+  const known = new Set(
+    (await db.mailMessage.findMany({ where: { externalId: { in: list.data.map((d) => d.id) }, complete: true }, select: { externalId: true } })).map(
+      (m) => m.externalId,
+    ),
+  );
+  let added = 0;
+  for (const { id } of list.data) {
+    if (known.has(id)) continue;
+    try {
+      await ingestReceivedEmail(id);
+      added++;
+    } catch (err) {
+      console.error("[mailbox] sync failed for", id, err);
+    }
+  }
+  return added;
+}
+
+// ---------- sending ----------
+
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+export function textToHtml(text: string) {
+  const body = esc(text)
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
+    .split("\n")
+    .map((line) => (line.startsWith("&gt;") ? `<span style="color:#666">${line}</span>` : line))
+    .join("<br>");
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#111">${body}</div>`;
+}
+
+export type OutgoingAttachment = { filename: string; contentType: string; data: Buffer };
+
+export async function sendMail(input: {
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  text: string;
+  attachments: OutgoingAttachment[];
+  replyToMail?: Pick<MailMessage, "rfcMessageId" | "references" | "threadKey"> | null;
+}) {
+  const rfcMessageId = `<${randomUUID()}@shaderlabs.in>`;
+  const references = input.replyToMail
+    ? [...ids(input.replyToMail.references), ...ids(input.replyToMail.rfcMessageId)].slice(-20).join(" ") || null
+    : null;
+  const inReplyTo = input.replyToMail?.rfcMessageId ?? null;
+  const html = textToHtml(input.text);
+
+  const headers: Record<string, string> = { "Message-ID": rfcMessageId };
+  if (inReplyTo) headers["In-Reply-To"] = inReplyTo;
+  if (references) headers["References"] = references;
+
+  const sent = await resend<{ id: string }>("/emails", {
+    method: "POST",
+    body: JSON.stringify({
+      from: MAILBOX_FROM,
+      to: input.to.map(formatAddress),
+      cc: input.cc.length ? input.cc.map(formatAddress) : undefined,
+      bcc: input.bcc.length ? input.bcc.map(formatAddress) : undefined,
+      subject: input.subject,
+      text: input.text,
+      html,
+      headers,
+      attachments: input.attachments.length
+        ? input.attachments.map((a) => ({ filename: a.filename, content: a.data.toString("base64"), content_type: a.contentType }))
+        : undefined,
+    }),
+  });
+
+  const threadKey =
+    input.replyToMail?.threadKey ??
+    (await resolveThreadKey({ rfcMessageId, subject: input.subject, counterpart: input.to[0]?.address ?? "" }));
+
+  const from = parseAddress(MAILBOX_FROM);
+  return db.mailMessage.create({
+    data: {
+      date: new Date(),
+      folder: "sent",
+      direction: "out",
+      source: "compose",
+      externalId: `sent:${sent.id}`,
+      rfcMessageId,
+      inReplyTo,
+      references,
+      threadKey,
+      fromAddress: from.address,
+      fromName: from.name,
+      to: input.to,
+      cc: input.cc,
+      bcc: input.bcc,
+      subject: input.subject,
+      text: input.text,
+      html,
+      snippet: snippetOf(input.text),
+      read: true,
+      hasAttachments: input.attachments.length > 0,
+      attachments: input.attachments.length
+        ? { create: input.attachments.map((a) => ({ filename: a.filename, contentType: a.contentType, size: a.data.length, data: new Uint8Array(a.data) })) }
+        : undefined,
+    },
+  });
+}

@@ -39,3 +39,60 @@ model Enquiry {
   @@index([createdAt])
   @@index([status])
 }
+
+// ---------- Mailbox for mail@shaderlabs.in (/admin/mail) ----------
+// Incoming mail arrives through Resend's receiving API, outgoing goes out through Resend,
+// and the old Titan mailbox was imported once with scripts/import-titan.mjs.
+
+model MailMessage {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  date           DateTime // when it was sent/received
+  folder         String   @default("inbox") // inbox | sent | archive | spam | trash | drafts
+  direction      String   // in | out
+  source         String   // resend | compose | titan
+  externalId     String?  @unique // Resend email id, or titan:<folder>:<uidvalidity>:<uid>
+
+  rfcMessageId   String?  // Message-ID header, e.g. <abc@host>
+  inReplyTo      String?
+  references     String?  // space-separated Message-IDs
+  threadKey      String   // groups a conversation
+
+  fromAddress    String
+  fromName       String?
+  to             Json     @default("[]") // [{ name, address }]
+  cc             Json     @default("[]")
+  bcc            Json     @default("[]")
+  replyTo        Json     @default("[]")
+  subject        String   @default("")
+  text           String?
+  html           String?
+  snippet        String   @default("")
+
+  read           Boolean  @default(false)
+  starred        Boolean  @default(false)
+  hasAttachments Boolean  @default(false)
+  complete       Boolean  @default(true) // false while attachments are still being fetched
+
+  attachments    MailAttachment[]
+
+  @@index([folder, date])
+  @@index([threadKey])
+  @@index([rfcMessageId])
+}
+
+model MailAttachment {
+  id          String      @id @default(cuid())
+  mail        MailMessage @relation(fields: [mailId], references: [id], onDelete: Cascade)
+  mailId      String
+  filename    String
+  contentType String
+  size        Int
+  contentId   String?     // for cid: images in the HTML body
+  inline      Boolean     @default(false)
+  data        Bytes
+
+  @@index([mailId])
+}
