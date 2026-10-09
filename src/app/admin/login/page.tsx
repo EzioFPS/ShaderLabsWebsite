@@ -15,8 +15,8 @@ export default async function AdminLoginPage({ searchParams }: { searchParams: P
       <div className="container-x">
         <div className="card mx-auto w-full max-w-md p-8 md:p-10">
           <p className="eyebrow">Admin</p>
-          <h1 className="display display-sm mt-4">Enquiries inbox</h1>
-          <p className="mt-3 text-muted">Enter the admin password to view contact form submissions.</p>
+          <h1 className="display display-sm mt-4">Login</h1>
+          <p className="mt-3 text-muted">Enter the admin password to continue.</p>
           <LoginForm next={safeNext} />
         </div>
       </div>
