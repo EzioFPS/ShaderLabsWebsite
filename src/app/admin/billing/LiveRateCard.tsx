@@ -104,7 +104,7 @@ function RateChart({ points }: { points: Point[] }) {
   if (points.length < 2)
     return (
       <div className="flex min-h-40 items-center justify-center rounded-md border border-dashed border-line p-6 text-center text-sm text-muted">
-        The rate chart builds up from now: a reading is saved every 10 minutes while Billing is open.
+        The rate chart builds up from now: a reading is saved every 15 minutes.
       </div>
     );
 
