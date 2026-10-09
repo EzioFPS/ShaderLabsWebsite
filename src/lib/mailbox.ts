@@ -2,12 +2,12 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { MailMessage, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { MAILBOX_ADDRESS, type Address, type Folder, type ThreadMessage, type ThreadSummary } from "@/lib/mail-shared";
+import { inlineImageUrl, MAILBOX_ADDRESS, type Address, type Folder, type ThreadMessage, type ThreadSummary } from "@/lib/mail-shared";
 import { notifyAll } from "@/lib/push";
 
 // The mail@shaderlabs.in mailbox: Resend receives and sends, Neon stores everything.
 
-export { FOLDERS, MAILBOX_ADDRESS, MOVE_TARGETS, formatAddress, type Address, type Folder } from "@/lib/mail-shared";
+export { FOLDERS, MAILBOX_ADDRESS, MOVE_TARGETS, formatAddress, inlineImageUrl, type Address, type Folder } from "@/lib/mail-shared";
 export const MAILBOX_FROM = process.env.MAILBOX_FROM || `Shader Labs <${MAILBOX_ADDRESS}>`;
 
 const RESEND = "https://api.resend.com";
@@ -93,7 +93,8 @@ export async function listThreads(folder: Folder, query: string, limit: number) 
     }
   }
   const all = [...threads.values()];
-  return { threads: all.slice(0, limit), hasMore: all.length > limit };
+  // A full window of rows means there may be older conversations even if they grouped into few threads.
+  return { threads: all.slice(0, limit), hasMore: all.length > limit || rows.length === limit * 3 };
 }
 
 export async function unreadCounts() {
@@ -108,12 +109,6 @@ export async function loadThread(threadKey: string): Promise<ThreadMessage[]> {
     orderBy: { date: "asc" },
     include: { attachments: { select: { id: true, filename: true, size: true, inline: true, contentId: true } } },
   });
-  const withCid = messages.filter((m) => m.html?.includes("cid:")).map((m) => m.id);
-  const inline = new Map<string, string>();
-  if (withCid.length) {
-    const parts = await db.mailAttachment.findMany({ where: { mailId: { in: withCid }, contentId: { not: null }, size: { lte: 3 * 1024 * 1024 } } });
-    for (const p of parts) inline.set(`${p.mailId}:${p.contentId}`, `data:${p.contentType};base64,${Buffer.from(p.data).toString("base64")}`);
-  }
   return messages.map((m) => ({
     id: m.id,
     date: m.date.toISOString(),
@@ -127,7 +122,13 @@ export async function loadThread(threadKey: string): Promise<ThreadMessage[]> {
     replyTo: asAddresses(m.replyTo),
     subject: m.subject,
     text: m.text,
-    html: m.html ? m.html.replace(/cid:([^"'\s)>]+)/gi, (all, cid) => inline.get(`${m.id}:${cid}`) ?? all) : null,
+    // Embedded images load from the attachment route (cached by the browser) instead of riding along as base64.
+    html: m.html
+      ? m.html.replace(/cid:([^"'\s)>]+)/gi, (all, cid) => {
+          const a = m.attachments.find((x) => x.contentId === cid);
+          return a ? inlineImageUrl(a.id) : all;
+        })
+      : null,
     snippet: m.snippet,
     read: m.read,
     starred: m.starred,
@@ -211,8 +212,12 @@ const header = (h: Record<string, string> | undefined, name: string) => {
 
 /** Stores one received email (idempotent). Returns the stored message id. */
 export async function ingestReceivedEmail(emailId: string) {
-  const existing = await db.mailMessage.findUnique({ where: { externalId: emailId }, select: { id: true, complete: true } });
+  const [existing, deleted] = await Promise.all([
+    db.mailMessage.findUnique({ where: { externalId: emailId }, select: { id: true, complete: true } }),
+    db.mailTombstone.findUnique({ where: { externalId: emailId } }),
+  ]);
   if (existing?.complete) return existing.id;
+  if (deleted) return null; // deleted for good; a late webhook retry mustn't bring it back
 
   const e = await resend<ReceivedEmail>(`/emails/receiving/${emailId}?html_format=cid`);
   const from = parseAddress(e.from);
@@ -263,26 +268,36 @@ export async function ingestReceivedEmail(emailId: string) {
   }
 
   if (e.attachments?.length) {
-    const have = new Set((await db.mailAttachment.findMany({ where: { mailId }, select: { filename: true } })).map((a) => a.filename));
-    for (const a of e.attachments) {
-      const filename = a.filename || "attachment";
-      if (have.has(filename) || (a.size ?? 0) > MAX_ATTACHMENT_BYTES) continue;
-      const meta = await resend<{ download_url: string }>(`/emails/receiving/${emailId}/attachments/${a.id}`);
-      const file = await fetch(meta.download_url, { signal: AbortSignal.timeout(30_000) });
-      if (!file.ok) throw new Error(`attachment download ${file.status}`);
-      const data = Buffer.from(await file.arrayBuffer());
-      await db.mailAttachment.create({
-        data: {
-          mailId,
-          filename,
-          contentType: a.content_type || "application/octet-stream",
-          size: data.length,
-          contentId: a.content_id ? a.content_id.replace(/^<|>$/g, "") : null,
-          inline: a.content_disposition === "inline",
-          data,
-        },
-      });
-    }
+    const stored = await db.mailAttachment.findMany({ where: { mailId }, select: { externalId: true, filename: true } });
+    // Matched by Resend's attachment id; rows stored before ids were kept fall back to the file name.
+    const have = new Set(stored.map((s) => s.externalId ?? `name:${s.filename}`));
+    await Promise.all(
+      e.attachments.map(async (a) => {
+        const filename = a.filename || "attachment";
+        if (have.has(a.id) || have.has(`name:${filename}`) || (a.size ?? 0) > MAX_ATTACHMENT_BYTES) return;
+        const meta = await resend<{ download_url: string }>(`/emails/receiving/${emailId}/attachments/${a.id}`);
+        const file = await fetch(meta.download_url, { signal: AbortSignal.timeout(30_000) });
+        if (!file.ok) throw new Error(`attachment download ${file.status}`);
+        const data = Buffer.from(await file.arrayBuffer());
+        await db.mailAttachment
+          .create({
+            data: {
+              id: `${mailId}:${a.id}`, // fixed id: a second copy of the same attachment can never be stored
+              mailId: mailId!,
+              filename,
+              contentType: a.content_type || "application/octet-stream",
+              size: data.length,
+              contentId: a.content_id ? a.content_id.replace(/^<|>$/g, "") : null,
+              inline: a.content_disposition === "inline",
+              externalId: a.id,
+              data,
+            },
+          })
+          .catch((err: { code?: string }) => {
+            if (err?.code !== "P2002") throw err; // already stored by a parallel run
+          });
+      }),
+    );
     await db.mailMessage.update({ where: { id: mailId }, data: { complete: true } });
   }
   return mailId;
@@ -294,11 +309,12 @@ export async function syncReceived(force = false) {
   if (!process.env.RESEND_API_KEY || (!force && Date.now() - lastSync < 60_000)) return 0;
   lastSync = Date.now();
   const list = await resend<{ data: { id: string }[] }>(`/emails/receiving?limit=50`);
-  const known = new Set(
-    (await db.mailMessage.findMany({ where: { externalId: { in: list.data.map((d) => d.id) }, complete: true }, select: { externalId: true } })).map(
-      (m) => m.externalId,
-    ),
-  );
+  const ids = list.data.map((d) => d.id);
+  const [done, deleted] = await Promise.all([
+    db.mailMessage.findMany({ where: { externalId: { in: ids }, complete: true }, select: { externalId: true } }),
+    db.mailTombstone.findMany({ where: { externalId: { in: ids } }, select: { externalId: true } }),
+  ]);
+  const known = new Set<string | null>([...done, ...deleted].map((m) => m.externalId));
   let added = 0;
   for (const { id } of list.data) {
     if (known.has(id)) continue;
@@ -343,9 +359,11 @@ export async function sendMail(input: {
   const inReplyTo = input.replyToMail?.rfcMessageId ?? null;
   const html = textToHtml(input.text);
 
+  // Values come from received mail, so keep them on one line.
+  const oneLine = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
   const headers: Record<string, string> = { "Message-ID": rfcMessageId };
-  if (inReplyTo) headers["In-Reply-To"] = inReplyTo;
-  if (references) headers["References"] = references;
+  if (inReplyTo) headers["In-Reply-To"] = oneLine(inReplyTo);
+  if (references) headers["References"] = oneLine(references);
 
   const sent = await resend<{ id: string }>("/emails", {
     method: "POST",

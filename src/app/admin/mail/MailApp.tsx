@@ -9,6 +9,7 @@ import {
   FOLDER_LABELS,
   FOLDERS,
   formatAddress,
+  inlineImageUrl,
   longDate,
   MAILBOX_ADDRESS,
   shortDate,
@@ -18,7 +19,14 @@ import {
   type ThreadSummary,
 } from "@/lib/mail-shared";
 import { logout } from "../actions";
-import { emptyTrash, syncNow, threadOp, type ThreadOp } from "./actions";
+import { emptyTrash, threadOp, type ThreadOp } from "./actions";
+
+/** Background check for new mail (a route, so it never queues behind taps). Returns the newest arrival time. */
+async function syncNow(force = false) {
+  const res = await fetch(`/admin/mail/sync${force ? "?force=1" : ""}`, { method: "POST", cache: "no-store" });
+  if (!res.ok) throw new Error(String(res.status));
+  return ((await res.json()) as { newest: number }).newest;
+}
 import { AppControls } from "./AppControls";
 import { Compose } from "./Compose";
 import { MailFrame } from "./MailFrame";
@@ -58,7 +66,6 @@ export function MailApp(props: Props) {
   if (props.initialKey && props.initialThread && !cache.current.has(props.initialKey)) cache.current.set(props.initialKey, props.initialThread);
 
   // Fresh data from the server (after a refresh or a folder change) replaces the local copy.
-  useEffect(() => setThreads(props.threads), [props.threads]);
   useEffect(() => setUnread(props.unread), [props.unread]);
   useEffect(() => setPendingFolder(null), [folder, query]);
 
@@ -141,13 +148,35 @@ export function MailApp(props: Props) {
     [fetchThread],
   );
 
+  // Fresh data from the server replaces the local copy. A conversation that has a newer message
+  // than its cached copy is dropped from the cache (and reloaded if it's the one on screen).
+  useEffect(() => {
+    setThreads(props.threads);
+    for (const t of props.threads) {
+      const hit = cache.current.get(t.threadKey);
+      if (!hit?.length || t.date <= hit[hit.length - 1].date) continue;
+      cache.current.delete(t.threadKey);
+      if (selectedRef.current === t.threadKey)
+        fetchThread(t.threadKey)
+          .then((m) => {
+            if (selectedRef.current === t.threadKey) setMessages(m);
+          })
+          .catch(() => {});
+    }
+  }, [props.threads, fetchThread]);
+  useEffect(() => {
+    if (!props.initialKey || !props.initialThread) return;
+    cache.current.set(props.initialKey, props.initialThread);
+    if (selectedRef.current === props.initialKey) setMessages(props.initialThread);
+  }, [props.initialKey, props.initialThread]);
+
   const open = (t: ThreadSummary) => {
     show(t.threadKey);
     window.history.pushState(null, "", urlFor(t.threadKey));
     if (t.unread) {
       setThreads((list) => list.map((x) => (x.threadKey === t.threadKey ? { ...x, unread: false } : x)));
       setUnread((u) => ({ ...u, [folder]: Math.max(0, (u[folder] ?? 0) - 1) }));
-      threadOp(t.threadKey, "read").then(refresh);
+      threadOp(t.threadKey, "read").then(refresh, refresh);
     }
   };
 
@@ -164,29 +193,56 @@ export function MailApp(props: Props) {
   }, [show]);
 
   // ---------- new mail: check in the background, never block the page ----------
+  // Refreshes whenever the newest message changes (webhook deliveries included), and again as
+  // soon as the app comes back to the foreground.
+  const newestSeen = useRef<number | null>(null);
   useEffect(() => {
-    if (!configured) return;
     let stopped = false;
     const run = async () => {
       if (document.hidden) return;
-      const added = await syncNow();
-      if (!stopped && added > 0) refresh();
+      const newest = await syncNow().catch(() => null);
+      if (stopped || newest === null) return;
+      if (newestSeen.current !== null && newest > newestSeen.current) refresh();
+      newestSeen.current = newest;
+    };
+    const onVisible = () => {
+      if (!document.hidden) run();
     };
     const first = setTimeout(run, 1500);
     const timer = setInterval(run, SYNC_EVERY_MS);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       stopped = true;
       clearTimeout(first);
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [configured, refresh]);
+  }, [refresh]);
 
   const checkNow = async () => {
     setSyncing(true);
-    await syncNow(true);
+    newestSeen.current = await syncNow(true).catch(() => newestSeen.current);
     setSyncing(false);
     refresh();
   };
+
+  // Tapping a notification while the app is open: the service worker asks us to show that
+  // conversation here instead of reloading the page.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { type?: string; thread?: unknown } | null;
+      if (data?.type !== "open-thread" || typeof data.thread !== "string") return;
+      e.ports[0]?.postMessage("ok");
+      const key = data.thread;
+      cache.current.delete(key); // it has a new message since it was cached
+      show(key);
+      window.history.pushState(null, "", urlFor(key));
+      threadOp(key, "read").then(refresh, refresh);
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [show, urlFor, refresh]);
 
   // ---------- conversation actions: update the screen first, save in the background ----------
   const act = (op: ThreadOp, to?: string) => {
@@ -207,7 +263,8 @@ export function MailApp(props: Props) {
       cache.current.delete(key);
       close();
     }
-    threadOp(key, op, to).then(refresh);
+    // Refresh either way: after a failure it puts back what the server really has.
+    threadOp(key, op, to).then(refresh, refresh);
   };
 
   // Escape closes the open conversation or the compose window.
@@ -475,7 +532,8 @@ function Conversation({ messages, folder, replyButtons }: { messages: ThreadMess
       <ol className="mt-6 space-y-3">
         {messages.map((m, i) => {
           const last = i === messages.length - 1;
-          const files = m.attachments.filter((a) => !a.inline || !(m.html ?? "").includes(`cid:${a.contentId}`));
+          // Images already shown in the body don't also need a download chip.
+          const files = m.attachments.filter((a) => !a.inline || !(m.html ?? "").includes(inlineImageUrl(a.id)));
           const recipients = (
             <>
               to {addr(m.to) || "—"}

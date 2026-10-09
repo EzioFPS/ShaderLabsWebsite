@@ -53,23 +53,28 @@ export function WorkIndex({ rows }: { rows: WorkRow[] }) {
   const [active, setActive] = useState<WorkRow | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const pos = useRef({ x: 0, y: 0, tx: 0, ty: 0, raf: 0 });
+  // The cursor preview only exists on hover devices, so phones don't download its images.
+  const [canHover, setCanHover] = useState(false);
+  useEffect(() => setCanHover(window.matchMedia("(min-width: 768px) and (hover: hover)").matches), []);
 
-  useEffect(() => {
+  // Eases the preview towards the cursor; the loop stops once it has caught up.
+  const tick = () => {
     const p = pos.current;
-    const tick = () => {
-      p.x += (p.tx - p.x) * 0.14;
-      p.y += (p.ty - p.y) * 0.14;
-      if (boxRef.current) boxRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
-      p.raf = requestAnimationFrame(tick);
-    };
-    p.raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(p.raf);
-  }, []);
+    p.x += (p.tx - p.x) * 0.14;
+    p.y += (p.ty - p.y) * 0.14;
+    if (boxRef.current) boxRef.current.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+    p.raf = Math.abs(p.tx - p.x) > 0.1 || Math.abs(p.ty - p.y) > 0.1 ? requestAnimationFrame(tick) : 0;
+  };
+  const kick = () => {
+    if (!pos.current.raf) pos.current.raf = requestAnimationFrame(tick);
+  };
+  useEffect(() => () => cancelAnimationFrame(pos.current.raf), []);
 
   const onMove = (e: React.PointerEvent) => {
     if (e.pointerType !== "mouse") return;
     pos.current.tx = e.clientX + 24;
     pos.current.ty = e.clientY - 120;
+    kick();
   };
 
   const enter = (row: WorkRow) => (e: React.PointerEvent) => {
@@ -78,6 +83,7 @@ export function WorkIndex({ rows }: { rows: WorkRow[] }) {
       pos.current.x = pos.current.tx = e.clientX + 24;
       pos.current.y = pos.current.ty = e.clientY - 120;
     }
+    kick();
     setActive(row);
   };
 
@@ -138,7 +144,7 @@ export function WorkIndex({ rows }: { rows: WorkRow[] }) {
         >
           {/* All previews stay mounted (so images are loaded before the first hover);
               only the active one is visible and animating. */}
-          {rows.map((row) => {
+          {canHover && rows.map((row) => {
             const on = active?.preview === row.preview;
             return (
               <div

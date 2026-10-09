@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth";
 import Link from "next/link";
 import { inr, loadDashboard, usd, type Range } from "@/lib/billing";
 import { BarList, MonthlyColumns, StatusBar } from "./charts";
@@ -24,6 +25,7 @@ function Tile({ label, value, sub, subTone }: { label: string; value: string; su
 }
 
 export default async function BillingOverview({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
+  await requireAdmin("/admin/billing");
   const { range: r } = await searchParams;
   const range: Range = RANGES.some((x) => x.key === r) ? (r as Range) : "12m";
 

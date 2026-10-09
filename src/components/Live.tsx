@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 
+// The current year, so the footer stays right on pages built last year.
+export function Year({ initial }: { initial: number }) {
+  const [year, setYear] = useState(initial);
+  useEffect(() => setYear(new Date().getFullYear()), []);
+  return <>{year}</>;
+}
+
 // Studio local time (IST). Rendered after mount to avoid hydration mismatch.
 export function Clock({ className = "" }: { className?: string }) {
   const [time, setTime] = useState<string | null>(null);

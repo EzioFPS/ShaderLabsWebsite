@@ -87,7 +87,7 @@ export async function sendEnquiryEmail(e: EnquiryEmail): Promise<MailResult> {
         text,
         html,
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(8_000),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");

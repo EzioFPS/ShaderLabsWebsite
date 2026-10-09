@@ -56,6 +56,9 @@ export type ComposeInit = {
   forwardedFiles?: string[];
 };
 
+/** Where an image embedded in an email body is served from (see mailbox.ts loadThread). */
+export const inlineImageUrl = (attachmentId: string) => `/admin/mail/attachment/${attachmentId}?inline=1`;
+
 export const formatAddress = (a: Address) => (a.name ? `${a.name} <${a.address}>` : a.address);
 
 const TZ = "Asia/Kolkata";

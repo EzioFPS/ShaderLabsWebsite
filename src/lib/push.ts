@@ -22,7 +22,7 @@ export type PushMessage = { title: string; body: string; url: string; tag?: stri
 export async function notifyOne(sub: { endpoint: string; p256dh: string; auth: string }, message: PushMessage) {
   if (!setup()) return false;
   try {
-    await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(message), { TTL: 600, urgency: "high" });
+    await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(message), { TTL: 600, urgency: "high", timeout: 5000 });
     return true;
   } catch (err) {
     console.error("[push] confirmation failed:", (err as { statusCode?: number }).statusCode, (err as Error).message);
@@ -40,10 +40,11 @@ export async function notifyAll(message: PushMessage) {
         await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(message), {
           TTL: 24 * 3600,
           urgency: "high",
+          timeout: 5000, // one slow push service mustn't hold up delivering the email
         });
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410) await db.pushSubscription.delete({ where: { id: s.id } }).catch(() => {});
+        if (status === 403 || status === 404 || status === 410) await db.pushSubscription.delete({ where: { id: s.id } }).catch(() => {});
         else console.error("[push] send failed:", status, (err as Error).message);
       }
     }),

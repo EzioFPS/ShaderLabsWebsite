@@ -20,7 +20,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (inv.source === "xflow" && inv.xflowFileId) {
       ({ bytes, type } = await xflowFileContents(inv.xflowFileId));
     } else {
-      bytes = new Uint8Array(await invoicePdf(inv, await getSettings(), await receivingAccount(inv.clientAccountId)));
+      const [settings, bank] = await Promise.all([getSettings(), receivingAccount(inv.clientAccountId)]);
+      bytes = new Uint8Array(await invoicePdf(inv, settings, bank));
     }
   } catch (err) {
     return new Response(err instanceof Error ? err.message : "Couldn't build the PDF", { status: 502 });

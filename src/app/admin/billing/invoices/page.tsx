@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/auth";
 import Link from "next/link";
 import { loadDashboard, usd } from "@/lib/billing";
 import { StatePill } from "../StatePill";
@@ -13,6 +14,7 @@ const FILTERS = [
 const day = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 
 export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ show?: string }> }) {
+  await requireAdmin("/admin/billing");
   const { show = "all" } = await searchParams;
   let rows: Awaited<ReturnType<typeof loadDashboard>>["invoices"] = [];
   let error: string | null = null;

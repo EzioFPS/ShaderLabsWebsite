@@ -1,8 +1,10 @@
+import { requireAdmin } from "@/lib/auth";
 import { getDeposits, getPartners, partnerName, toCents, usd } from "@/lib/billing";
 import { db } from "@/lib/db";
 import { ClientForm } from "./ClientForm";
 
 export default async function ClientsPage() {
+  await requireAdmin("/admin/billing");
   let error: string | null = null;
   let rows: { id: string; name: string; email?: string; country?: string; status: string; paid: number; invoices: number }[] = [];
   try {

@@ -1,15 +1,25 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { MOVE_TARGETS, parseAddressList, sendMail, syncReceived, type OutgoingAttachment } from "@/lib/mailbox";
+import { MOVE_TARGETS, parseAddressList, sendMail, type OutgoingAttachment } from "@/lib/mailbox";
 
 const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024; // Netlify Functions accept ~6 MB per request
 
 async function guard() {
   if (!(await isAdmin())) redirect("/admin/login");
+}
+
+/** Deletes for good, remembering Resend ids so a later sync can't bring the mail back. */
+async function purge(where: Prisma.MailMessageWhereInput) {
+  const gone = await db.mailMessage.findMany({ where: { ...where, externalId: { not: null } }, select: { externalId: true } });
+  await db.$transaction([
+    db.mailTombstone.createMany({ data: gone.map((g) => ({ externalId: g.externalId! })), skipDuplicates: true }),
+    db.mailMessage.deleteMany({ where }),
+  ]);
 }
 
 export type ThreadOp = "read" | "unread" | "star" | "unstar" | "move" | "delete";
@@ -41,24 +51,14 @@ export async function threadOp(threadKey: string, op: ThreadOp, to?: string) {
         db.mailMessage.updateMany({ where: { ...where, direction: "out" }, data: { folder: "sent" } }),
       ]);
   } else if (op === "delete") {
-    await db.mailMessage.deleteMany({ where: { ...where, folder: "trash" } });
+    await purge({ ...where, folder: "trash" });
   }
 }
 
-/** Checks Resend for mail the webhook may have missed. Returns how many messages were added. */
-export async function syncNow(force = false) {
-  await guard();
-  try {
-    return await syncReceived(force);
-  } catch (err) {
-    console.error("[mailbox] sync failed:", err);
-    return 0;
-  }
-}
 
 export async function emptyTrash() {
   await guard();
-  await db.mailMessage.deleteMany({ where: { folder: "trash" } });
+  await purge({ folder: "trash" });
   revalidatePath("/admin/mail");
   redirect("/admin/mail?folder=trash");
 }

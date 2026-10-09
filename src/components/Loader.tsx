@@ -218,7 +218,7 @@ export function Loader() {
           <span>
             Compiling shaders<span className="loader-dots" aria-hidden="true" />
           </span>
-          <span className="stat text-fg tabular-nums">{String(pct).padStart(3, "0")}%</span>
+          <span className="stat text-fg tabular-nums" aria-hidden="true">{String(pct).padStart(3, "0")}%</span>
         </div>
         <div className="mt-4 h-px w-full bg-line">
           <div className="h-px bg-lime" style={{ width: `${pct}%` }} />

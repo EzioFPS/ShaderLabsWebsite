@@ -94,6 +94,7 @@ export function SettingsForm({ s, purposeCodes, numberPreview }: { s: Settings; 
           <div className="grid gap-4 sm:grid-cols-2">
             {input("invoicePrefix", "Prefix", "e.g. SL")}
             {input("nextNumber", "Next number", "Change only to continue an existing series", { type: "number", min: 1 })}
+            <input type="hidden" name="nextNumberWas" value={s.nextNumber} />
           </div>
         </div>
         <div className="card space-y-4 p-5 md:p-6">

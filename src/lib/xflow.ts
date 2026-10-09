@@ -64,9 +64,10 @@ export async function listAll<T extends { id: string }>(path: string, query: Rec
   for (let page = 0; page < maxPages; page++) {
     const r = await xflow<List<T>>(path, { query: { ...query, limit: 10, starting_after: after } });
     out.push(...r.data);
-    if (!r.has_next || !r.data.length) break;
+    if (!r.has_next || !r.data.length) return out;
     after = r.data[r.data.length - 1].id;
   }
+  console.warn(`[xflow] ${path}: stopped after ${maxPages} pages; older records are not included`);
   return out;
 }
 

@@ -152,7 +152,7 @@ export function InvoiceActions(p: Props) {
         <Step n={4} title="Email it to the client" done={Boolean(p.sentAt)}>
           {p.sentAt && (
             <p className="mb-3 text-sm text-muted">
-              Sent to {p.sentTo} on {new Date(p.sentAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.
+              Sent to {p.sentTo} on {new Date(p.sentAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}.
             </p>
           )}
           <div className="flex flex-wrap gap-2">

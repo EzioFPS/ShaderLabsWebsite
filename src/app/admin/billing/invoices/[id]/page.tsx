@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireAdmin } from "@/lib/auth";
 import { getDeposits, getReceivables, invoiceState, lineItems, PURPOSE_CODES, toCents, unmatchedFunds, usd } from "@/lib/billing";
 import { db } from "@/lib/db";
 import { xflowTestMode } from "@/lib/xflow";
@@ -9,6 +10,7 @@ import { InvoiceActions } from "./InvoiceActions";
 const day = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
 
 export default async function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
+  await requireAdmin("/admin/billing");
   const { id } = await params;
   const inv = await db.invoice.findUnique({ where: { id } });
   if (!inv) notFound();

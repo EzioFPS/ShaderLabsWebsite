@@ -57,8 +57,13 @@ export function Motion() {
   // ---------- Animations: rebuilt on every page ----------
   const firstRun = useRef(true);
   useEffect(() => {
-    // After client-side navigation, start the new page at the top (Lenis keeps its own position).
-    if (!firstRun.current) window.__lenis?.scrollTo(0, { immediate: true, force: true });
+    if (!firstRun.current) {
+      // The loader only plays before the first page, so later pages shouldn't wait for it.
+      document.documentElement.classList.remove("has-loader");
+      // After client-side navigation, start the new page at the top (Lenis keeps its own position),
+      // unless the link points at a section (e.g. /services#crm).
+      if (!window.location.hash) window.__lenis?.scrollTo(0, { immediate: true, force: true });
+    }
     firstRun.current = false;
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {

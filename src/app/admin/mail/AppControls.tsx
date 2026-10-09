@@ -35,6 +35,10 @@ export function AppControls({ pushKey, compact = false }: { pushKey: string | nu
       if (Notification.permission === "denied") return setState("denied");
       const sub = await reg?.pushManager.getSubscription();
       setState(sub ? "on" : "off");
+      // Re-register quietly each time, so the server always has this phone's current address
+      // (browsers rotate them now and then, and notifications would stop without a word).
+      if (sub)
+        fetch("/admin/mail/push?resync=1", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub.toJSON()) }).catch(() => {});
     })();
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, [pushKey]);

@@ -169,6 +169,10 @@ export function ShaderCanvas({ className = "", label }: { className?: string; la
     };
 
     const loop = (now: number) => {
+      if (gl.isContextLost()) {
+        raf = 0;
+        return;
+      }
       draw(now);
       raf = visible && !document.hidden ? requestAnimationFrame(loop) : 0;
     };
@@ -177,6 +181,7 @@ export function ShaderCanvas({ className = "", label }: { className?: string; la
     };
 
     const onMove = (e: PointerEvent) => {
+      if (!visible) return; // no layout reads while the hero is off screen
       const rect = canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
       const y = 1 - (e.clientY - rect.top) / rect.height;

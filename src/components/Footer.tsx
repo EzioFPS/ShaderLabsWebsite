@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { company, nav } from "@/lib/content";
-import { Clock, CopyEmail } from "./Live";
+import { Clock, CopyEmail, Year } from "./Live";
 import { Lines } from "./Lines";
 import { Logo } from "./Logo";
 
@@ -82,7 +82,7 @@ export function Footer() {
 
       <div className="container-x meta flex flex-col gap-2 border-t border-line py-6 sm:flex-row sm:justify-between">
         <p>
-          © {year} {company.legalName}
+          © <Year initial={year} /> {company.legalName}
         </p>
         <a href="#main" className="u-link w-fit text-fg">
           Back to top ↑

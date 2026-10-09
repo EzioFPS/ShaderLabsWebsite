@@ -14,7 +14,6 @@ export function Founders() {
               width={1086}
               height={1448}
               sizes="(min-width: 1280px) 34vw, (min-width: 640px) 45vw, 100vw"
-              priority={i === 0}
               className="h-full w-full object-cover grayscale"
             />
           </div>

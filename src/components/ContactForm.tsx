@@ -18,7 +18,7 @@ export function ContactForm() {
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    startedAt.current = Date.now();
+    startedAt.current = performance.now();
   }, []);
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export function ContactForm() {
       message: get("message"),
       services,
       fax: get("fax"),
-      startedAt: startedAt.current,
+      fillMs: Math.round(performance.now() - startedAt.current), // measured locally, so a wrong device clock can't matter
     };
 
     // Quick client-side checks (the server validates everything again).
@@ -100,7 +100,7 @@ export function ContactForm() {
     setSentTo(null);
     setError(null);
     setFieldErrors({});
-    startedAt.current = Date.now();
+    startedAt.current = performance.now();
   }
 
   if (state === "success" && sentTo) {
@@ -134,6 +134,7 @@ export function ContactForm() {
   return (
     <form
       ref={formRef}
+      method="post"
       onSubmit={onSubmit}
       onChange={(e) => {
         // Clear a field's error as soon as the person edits it.

@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 export const SESSION_COOKIE = "sl_admin";
 const SESSION_DAYS = 30; // long enough that the installed mail app stays signed in
@@ -44,6 +45,11 @@ function verifySessionToken(token: string | undefined) {
 export async function isAdmin() {
   const store = await cookies();
   return verifySessionToken(store.get(SESSION_COOKIE)?.value);
+}
+
+/** For pages: a layout's check alone isn't enough, since layouts aren't re-run on every request. */
+export async function requireAdmin(next: string) {
+  if (!(await isAdmin())) redirect(`/admin/login?next=${next}`);
 }
 
 export const sessionCookieOptions = {

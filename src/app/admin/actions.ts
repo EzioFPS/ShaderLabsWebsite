@@ -10,7 +10,7 @@ import { STATUSES } from "@/lib/statuses";
 
 export async function login(_prev: { error?: string } | undefined, formData: FormData) {
   const h = await headers();
-  const ip = (h.get("cf-connecting-ip") || h.get("x-forwarded-for")?.split(",")[0] || "local").trim();
+  const ip = (h.get("x-nf-client-connection-ip") || h.get("x-forwarded-for")?.split(",")[0] || "local").trim();
   if (!rateLimit(`login:${ip}`, 8, 15 * 60 * 1000)) {
     return { error: "Too many attempts. Try again in 15 minutes." };
   }
@@ -36,7 +36,7 @@ export async function updateStatus(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const status = String(formData.get("status") ?? "");
   if (!id || !(STATUSES as readonly string[]).includes(status)) return;
-  await db.enquiry.update({ where: { id }, data: { status } });
+  await db.enquiry.updateMany({ where: { id }, data: { status } }); // no error if it was deleted meanwhile
   revalidatePath("/admin/enquiries");
   revalidatePath("/admin");
 }

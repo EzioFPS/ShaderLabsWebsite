@@ -234,7 +234,7 @@
 @keyframes line-up { from { transform: translateY(108%); } to { transform: none; } }
 
 /* On load (hero): pure CSS, independent of JS. When the loader is shown (`has-loader`,
-   a class that is never removed) the hero waits for the loader's exit wipe. */
+   removed after the first page) the hero waits for the loader's exit wipe. */
 html.has-loader { --load-offset: 1650ms; }
 [data-lines="load"] .line-inner {
   animation: line-up 1s var(--ease-out-expo) both;

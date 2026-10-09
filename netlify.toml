@@ -12,6 +12,12 @@
   # so the secrets scanner skips them. Real secrets (API key, passwords, DB URL) are still scanned.
   SECRETS_SCAN_OMIT_KEYS = "CONTACT_TO,MAIL_FROM,SITE_URL"
 
+# Previews and branch builds never touch the production database schema.
+[context.deploy-preview]
+  command = "npm run build"
+[context.branch-deploy]
+  command = "npm run build"
+
 # Ship Prisma's Linux query engine with the server function.
 [functions]
   included_files = ["node_modules/.prisma/client/*.node", "node_modules/.prisma/client/schema.prisma"]

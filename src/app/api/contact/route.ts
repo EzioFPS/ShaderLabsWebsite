@@ -8,24 +8,19 @@ export const runtime = "nodejs";
 
 const MIN_FILL_MS = 2500; // humans don't fill a form in under 2.5s
 
+// Netlify sets x-nf-client-connection-ip itself; visitors can't fake it the way they could other headers.
 function clientIp(req: Request) {
-  const fwd = req.headers.get("x-forwarded-for");
-  return (
-    req.headers.get("cf-connecting-ip") ||
-    fwd?.split(",")[0] ||
-    req.headers.get("x-real-ip") ||
-    "unknown"
-  ).trim();
+  return (req.headers.get("x-nf-client-connection-ip") || req.headers.get("x-forwarded-for")?.split(",")[0] || "unknown").trim();
 }
+
+const TOO_MANY = { ok: false, error: "Too many messages from your connection. Please try again in a few minutes." };
+const FAILED = { ok: false, error: "Something went wrong. Please try again, or email us directly." };
 
 export async function POST(req: Request) {
   const ip = clientIp(req);
 
   if (!rateLimit(`contact:${ip}`, 5, 10 * 60 * 1000)) {
-    return NextResponse.json(
-      { ok: false, error: "Too many messages from your connection. Please try again in a few minutes." },
-      { status: 429 },
-    );
+    return NextResponse.json(TOO_MANY, { status: 429 });
   }
 
   let body: unknown;
@@ -51,12 +46,19 @@ export async function POST(req: Request) {
   const data = parsed.data;
 
   // Bots: pretend success so they don't retry, but store nothing.
-  const tooFast = data.startedAt ? Date.now() - data.startedAt < MIN_FILL_MS : false;
+  const tooFast = data.fillMs !== undefined && data.fillMs < MIN_FILL_MS;
   if (data.fax || tooFast) {
     return NextResponse.json({ ok: true });
   }
 
-  const enquiry = await db.enquiry.create({
+  // The in-memory limit above resets whenever Netlify starts a fresh instance; this one doesn't.
+  let enquiry;
+  try {
+    if (ip !== "unknown") {
+      const recent = await db.enquiry.count({ where: { ip, createdAt: { gt: new Date(Date.now() - 10 * 60 * 1000) } } });
+      if (recent >= 5) return NextResponse.json(TOO_MANY, { status: 429 });
+    }
+    enquiry = await db.enquiry.create({
     data: {
       name: data.name,
       email: data.email,
@@ -70,6 +72,10 @@ export async function POST(req: Request) {
       userAgent: req.headers.get("user-agent")?.slice(0, 300),
     },
   });
+  } catch (err) {
+    console.error("[contact] could not store enquiry", err);
+    return NextResponse.json(FAILED, { status: 500 });
+  }
 
   const mail = await sendEnquiryEmail({
     id: enquiry.id,
@@ -84,10 +90,10 @@ export async function POST(req: Request) {
     createdAt: enquiry.createdAt,
   });
 
-  await db.enquiry.update({
-    where: { id: enquiry.id },
-    data: { emailStatus: mail.status, emailError: mail.error ?? null },
-  });
+  // The enquiry is already saved, so a hiccup here must not make the visitor send it twice.
+  await db.enquiry
+    .update({ where: { id: enquiry.id }, data: { emailStatus: mail.status, emailError: mail.error ?? null } })
+    .catch((err) => console.error("[contact] could not record email status", err));
 
   // The enquiry is safely stored even if email delivery failed.
   return NextResponse.json({ ok: true });

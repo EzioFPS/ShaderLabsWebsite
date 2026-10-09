@@ -7,6 +7,7 @@ import {
   cancelReceivable,
   createClient,
   createPaymentLink,
+  financialYear,
   getDeposits,
   getPartners,
   getReceivables,
@@ -74,7 +75,10 @@ export async function createInvoiceAction(_prev: ActionResult, form: FormData): 
   const a = client.business_details?.physical_address;
   const totalCents = items.reduce((s, i) => s + Math.round(i.unitCents * i.quantity), 0);
 
-  const inv = await db.invoice.create({
+  let inv;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      inv = await db.invoice.create({
     data: {
       number: await nextInvoiceNumber(),
       clientAccountId,
@@ -89,7 +93,14 @@ export async function createInvoiceAction(_prev: ActionResult, form: FormData): 
       notes,
       purposeCode,
     },
-  });
+      });
+      break;
+    } catch (err) {
+      // A number already taken (e.g. the counter was set by hand): take the next one.
+      if (attempt < 2 && (err as { code?: string }).code === "P2002") continue;
+      return fail(err);
+    }
+  }
   redirect(`/admin/billing/invoices/${inv.id}`);
 }
 
@@ -114,7 +125,9 @@ export async function registerAction(id: string): Promise<ActionResult> {
 export async function paymentLinkAction(id: string): Promise<ActionResult> {
   await guard();
   try {
-    await createPaymentLink(await loadInvoice(id));
+    const inv = await loadInvoice(id);
+    if (inv.paymentLinkUrl) return { error: "This invoice already has a payment link." };
+    await createPaymentLink(inv);
     return done(`/admin/billing/invoices/${id}`, "Payment link created.");
   } catch (err) {
     return fail(err);
@@ -127,8 +140,7 @@ export async function emailInvoiceAction(id: string, to: string): Promise<Action
     const inv = await loadInvoice(id);
     const address = to.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return { error: "Enter a valid email address." };
-    const settings = await getSettings();
-    const bank = await receivingAccount(inv.clientAccountId);
+    const [settings, bank] = await Promise.all([getSettings(), receivingAccount(inv.clientAccountId)]);
     const pdf = await invoicePdf(inv, settings, bank);
     const due = inv.dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const text = [
@@ -163,6 +175,7 @@ export type WithdrawPreview = { error?: string; amountCents?: number; bank?: str
 
 export async function previewWithdrawAction(id: string): Promise<WithdrawPreview> {
   await guard();
+  clearXflowCache(); // money checks always use fresh numbers from Xflow
   try {
     const inv = await loadInvoice(id);
     if (!inv.xflowReceivableId) return { error: "Register the invoice with Xflow first." };
@@ -182,6 +195,7 @@ export async function previewWithdrawAction(id: string): Promise<WithdrawPreview
 
 export async function withdrawAction(id: string, amountCents: number): Promise<ActionResult> {
   await guard();
+  clearXflowCache(); // money checks always use fresh numbers from Xflow
   try {
     const inv = await loadInvoice(id);
     if (!inv.xflowReceivableId) return { error: "Register the invoice with Xflow first." };
@@ -252,6 +266,8 @@ export async function saveSettingsAction(_prev: ActionResult, form: FormData): P
   await guard();
   const v = (k: string) => String(form.get(k) ?? "").trim();
   const nextNumber = Math.max(1, Math.floor(Number(v("nextNumber")) || 1));
+  // Only touch the counter if it was actually changed here, so an old open tab can't wind it back.
+  const counterChanged = nextNumber !== Number(v("nextNumberWas"));
   const paymentTermsDays = Math.max(0, Math.min(365, Math.floor(Number(v("paymentTermsDays")) || 15)));
   await getSettings();
   await db.billingSettings.update({
@@ -265,7 +281,7 @@ export async function saveSettingsAction(_prev: ActionResult, form: FormData): P
       pan: v("pan") || null,
       lutNumber: v("lutNumber") || null,
       invoicePrefix: (v("invoicePrefix") || "SL").replace(/[^A-Za-z0-9-]/g, "").slice(0, 12) || "SL",
-      nextNumber,
+      ...(counterChanged ? { nextNumber, numberYear: financialYear() } : {}),
       paymentTermsDays,
       defaultPurposeCode: v("defaultPurposeCode") || "P0802",
       footerNote: v("footerNote") || null,

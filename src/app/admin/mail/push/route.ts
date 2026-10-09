@@ -14,6 +14,8 @@ export async function POST(req: Request) {
   if (!sub.endpoint?.startsWith("https://") || !sub.keys?.p256dh || !sub.keys?.auth) return new Response("Bad subscription", { status: 400 });
   const data = { p256dh: sub.keys.p256dh, auth: sub.keys.auth, userAgent: req.headers.get("user-agent")?.slice(0, 300) ?? null };
   await db.pushSubscription.upsert({ where: { endpoint: sub.endpoint }, update: data, create: { endpoint: sub.endpoint, ...data } });
+  // ?resync=1: the app re-registering itself on open; no "Notifications are on" message then.
+  if (new URL(req.url).searchParams.has("resync")) return Response.json({ ok: true });
   const delivered = await notifyOne(
     { endpoint: sub.endpoint, ...data },
     { title: "Notifications are on", body: "You'll get a notification here for every new email to mail@shaderlabs.in.", url: "/admin/mail", tag: "push-enabled" },

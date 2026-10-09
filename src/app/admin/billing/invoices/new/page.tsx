@@ -1,13 +1,11 @@
-import { getPartners, getSettings, partnerName, PURPOSE_CODES } from "@/lib/billing";
+import { requireAdmin } from "@/lib/auth";
+import { financialYear as fy, getPartners, getSettings, partnerName, PURPOSE_CODES } from "@/lib/billing";
 import { InvoiceForm } from "./InvoiceForm";
 
 const ymd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-const fy = (d = new Date()) => {
-  const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
-  return `${y}-${String(y + 1).slice(2)}`;
-};
 
 export default async function NewInvoicePage() {
+  await requireAdmin("/admin/billing");
   const [settings, partners] = await Promise.all([getSettings(), getPartners().catch(() => [])]);
   const today = new Date();
   const due = new Date(today.getTime() + settings.paymentTermsDays * 86400000);

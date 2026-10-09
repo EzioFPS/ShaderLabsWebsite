@@ -36,5 +36,5 @@ export const enquirySchema = z.object({
     .max(5000, "Please keep your message under 5,000 characters."),
   // Anti-spam fields
   fax: z.string().optional(), // honeypot: real people never see or fill this
-  startedAt: z.number().optional(), // ms timestamp when the form was rendered
+  fillMs: z.number().optional(), // how long the form was open before sending, in ms
 });

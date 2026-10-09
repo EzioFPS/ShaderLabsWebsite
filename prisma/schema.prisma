@@ -81,6 +81,16 @@ model MailMessage {
   @@index([folder, date])
   @@index([threadKey])
   @@index([rfcMessageId])
+  @@index([createdAt])
+  @@index([date])
+  @@index([read, direction, folder])
+  @@index([starred, date])
+}
+
+// Resend ids of mail deleted for good, so a later sync doesn't bring it back.
+model MailTombstone {
+  externalId String   @id
+  createdAt  DateTime @default(now())
 }
 
 // ---------- Billing (/admin/billing), backed by Xflow ----------
@@ -163,6 +173,7 @@ model MailAttachment {
   size        Int
   contentId   String?     // for cid: images in the HTML body
   inline      Boolean     @default(false)
+  externalId  String?     // Resend attachment id, so a retried download is never stored twice
   data        Bytes
 
   @@index([mailId])

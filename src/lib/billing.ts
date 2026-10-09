@@ -1,5 +1,5 @@
 import "server-only";
-import type { BillingSettings, Invoice } from "@prisma/client";
+import type { BillingSettings, Invoice, Prisma } from "@prisma/client";
 import {
   concatTransformationMatrix,
   PDFDocument,
@@ -14,6 +14,7 @@ import {
 import { db } from "@/lib/db";
 import {
   cached,
+  clearXflowCache,
   listAll,
   xflow,
   type XAccount,
@@ -58,24 +59,23 @@ export async function getSettings(): Promise<BillingSettings> {
   return (await db.billingSettings.findUnique({ where: { id: 1 } })) ?? db.billingSettings.create({ data: { id: 1 } });
 }
 
-const financialYear = (d = new Date()) => {
-  const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; // Indian FY starts 1 April
+/** Indian financial year (starts 1 April), worked out in IST rather than the server's UTC. */
+export const financialYear = (d = new Date()) => {
+  const [year, month] = d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }).split("-").map(Number);
+  const y = month >= 4 ? year : year - 1;
   return `${y}-${String(y + 1).slice(2)}`;
 };
 
 /** Reserves the next invoice number, e.g. SL/2026-27/001, then 002, 003… Restarts at 001 each April. */
 export async function nextInvoiceNumber() {
   const fy = financialYear();
-  const current = await getSettings();
-  if (current.numberYear && current.numberYear !== fy) {
-    // New financial year: start again at 1.
-    await db.billingSettings.updateMany({ where: { id: 1, numberYear: current.numberYear }, data: { numberYear: fy, nextNumber: 1 } });
-  } else if (!current.numberYear) {
-    await db.billingSettings.update({ where: { id: 1 }, data: { numberYear: fy } });
-  }
+  await getSettings();
+  // Conditional updates, so only one request can roll the year over ("2025-26" < "2026-27" as text).
+  await db.billingSettings.updateMany({ where: { id: 1, numberYear: null }, data: { numberYear: fy } });
+  await db.billingSettings.updateMany({ where: { id: 1, numberYear: { lt: fy } }, data: { numberYear: fy, nextNumber: 1 } });
   // A single atomic increment, so two invoices can never get the same number.
   const s = await db.billingSettings.update({ where: { id: 1 }, data: { nextNumber: { increment: 1 } } });
-  return `${s.invoicePrefix}/${fy}/${String(s.nextNumber - 1).padStart(3, "0")}`;
+  return `${s.invoicePrefix}/${s.numberYear ?? fy}/${String(s.nextNumber - 1).padStart(3, "0")}`;
 }
 
 // ---------- Xflow data (cached briefly) ----------
@@ -129,7 +129,7 @@ export function invoiceState(inv: Pick<Invoice, "status" | "dueDate" | "totalCen
   if (done >= total && total > 0) return { key: "paid", label: "Paid", tone: "good" };
   if (unmatchedCents > 0) return { key: "ready", label: "Payment received", tone: "good" };
   if (done > 0) return { key: "partial", label: "Part paid", tone: "warning" };
-  if (inv.dueDate.getTime() < Date.now()) return { key: "overdue", label: "Overdue", tone: "critical" };
+  if (inv.dueDate.toISOString().slice(0, 10) < new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })) return { key: "overdue", label: "Overdue", tone: "critical" };
   return { key: "awaiting", label: "Awaiting payment", tone: "warning" };
 }
 
@@ -140,11 +140,10 @@ const monthLabel = (key: string) => new Date(`${key}-01T00:00:00`).toLocaleDateS
 
 function lastMonths(n: number) {
   const out: string[] = [];
-  const d = new Date();
-  d.setDate(1);
+  const [y, m] = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }).split("-").map(Number);
   for (let i = n - 1; i >= 0; i--) {
-    const x = new Date(d.getFullYear(), d.getMonth() - i, 1);
-    out.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}`);
+    const x = new Date(Date.UTC(y, m - 1 - i, 1));
+    out.push(`${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, "0")}`);
   }
   return out;
 }
@@ -156,15 +155,14 @@ export type Range = "3m" | "6m" | "12m" | "all";
  * in Xflow's own dashboard. Their PDF stays the document uploaded to Xflow.
  */
 export async function importFromXflow(receivables: XReceivable[], partners: XAccount[]) {
-  const known = new Set(
-    (await db.invoice.findMany({ where: { xflowReceivableId: { not: null } }, select: { xflowReceivableId: true } })).map((i) => i.xflowReceivableId),
-  );
+  const existing = await db.invoice.findMany({ select: { number: true, xflowReceivableId: true } });
+  const known = new Set(existing.map((i) => i.xflowReceivableId));
   // Skip ones this dashboard created itself (tagged with our invoice id), even mid-registration.
   const missing = receivables.filter((r) => !known.has(r.id) && r.invoice && !r.metadata?.invoice_id);
   if (!missing.length) return 0;
   const byId = new Map(partners.map((p) => [p.id, p]));
-  const taken = new Set((await db.invoice.findMany({ select: { number: true } })).map((i) => i.number));
-  let added = 0;
+  const taken = new Set(existing.map((i) => i.number));
+  const rows: Prisma.InvoiceCreateManyInput[] = [];
   for (const r of missing) {
     const p = byId.get(r.account_id);
     const a = p?.business_details?.physical_address;
@@ -173,9 +171,7 @@ export async function importFromXflow(receivables: XReceivable[], partners: XAcc
     while (taken.has(number)) number = `${number} (Xflow)`;
     taken.add(number);
     const created = new Date(r.created * 1000);
-    try {
-      await db.invoice.create({
-        data: {
+    rows.push({
           number,
           clientAccountId: r.account_id,
           clientName: partnerName(p),
@@ -192,14 +188,11 @@ export async function importFromXflow(receivables: XReceivable[], partners: XAcc
           xflowFileId: r.invoice?.document ?? null,
           xflowReceivableId: r.id,
           createdAt: created,
-        },
-      });
-      added++;
-    } catch (err) {
-      console.error("[billing] import failed for", r.id, err);
-    }
+    });
   }
-  return added;
+  // One insert for all of them; anything a parallel request already added is skipped.
+  const { count } = await db.invoice.createMany({ data: rows, skipDuplicates: true });
+  return count;
 }
 
 export async function loadDashboard(range: Range) {
@@ -211,7 +204,8 @@ export async function loadDashboard(range: Range) {
     getBalance().catch(() => null),
     getUsdInrRate(),
   ]);
-  await importFromXflow(receivables, partners);
+  // A failed import must not take the whole dashboard down; the next load tries again.
+  await importFromXflow(receivables, partners).catch((err) => console.error("[billing] import from Xflow failed:", err));
   const invoices = await db.invoice.findMany({ orderBy: { issueDate: "desc" } });
   const byPartner = new Map(partners.map((p) => [p.id, p]));
 
@@ -304,9 +298,11 @@ export async function loadDashboard(range: Range) {
 export async function receivingAccount(partnerId: string) {
   const usdActive = (list: XAddress[]) => list.find((a) => a.currency === "USD" && a.status === "activated") ?? null;
   return cached(`receive:${partnerId}`, 10 * TTL, async () => {
-    const own = await listAll<XAddress>("/v1/addresses", { account_id: partnerId, category: "xflow_receive" }, 3).catch(() => [] as XAddress[]);
+    const [own, shared] = await Promise.all([
+      listAll<XAddress>("/v1/addresses", { account_id: partnerId, category: "xflow_receive" }, 3).catch(() => [] as XAddress[]),
+      listAll<XAddress>("/v1/addresses", { category: "xflow_receive" }, 3).catch(() => [] as XAddress[]),
+    ]);
     if (usdActive(own)) return usdActive(own);
-    const shared = await listAll<XAddress>("/v1/addresses", { category: "xflow_receive" }, 3).catch(() => [] as XAddress[]);
     return usdActive(shared.filter((a) => a.linked_id !== partnerId));
   });
 }
@@ -324,6 +320,8 @@ export async function payoutAddress() {
 // Standard PDF fonts only cover Latin-1; swap anything else for a safe character.
 const safe = (s: string) =>
   s
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t/g, " ")
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, "-")
@@ -345,7 +343,16 @@ function wrap(text: string, font: PDFFont, size: number, width: number) {
   const lines: string[] = [];
   for (const para of safe(text).split("\n")) {
     let line = "";
-    for (const word of para.split(/\s+/)) {
+    for (let word of para.split(/\s+/)) {
+      // A single word wider than the column (a long URL or ID) is broken so it can't overrun.
+      while (font.widthOfTextAtSize(word, size) > width && word.length > 1) {
+        let k = word.length - 1;
+        while (k > 1 && font.widthOfTextAtSize(word.slice(0, k), size) > width) k--;
+        if (line) lines.push(line);
+        lines.push(word.slice(0, k));
+        line = "";
+        word = word.slice(k);
+      }
       const next = line ? `${line} ${word}` : word;
       if (font.widthOfTextAtSize(next, size) > width && line) {
         lines.push(line);
@@ -650,8 +657,14 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 /** Uploads the invoice PDF to Xflow, creates the receivable and submits it for verification. */
 export async function registerWithXflow(inv: Invoice) {
-  const settings = await getSettings();
-  const bank = await receivingAccount(inv.clientAccountId);
+  // If an earlier attempt created the receivable but didn't finish (timeout, closed tab), adopt it.
+  clearXflowCache();
+  const existing = (await getReceivables()).find((r) => r.metadata?.invoice_id === inv.id && r.status !== "cancelled");
+  if (existing) {
+    if (existing.status === "draft") await xflow(`/v1/receivables/${existing.id}/confirm`, { method: "POST", body: {} }).catch(() => {});
+    return db.invoice.update({ where: { id: inv.id }, data: { status: "registered", xflowFileId: existing.invoice?.document ?? null, xflowReceivableId: existing.id } });
+  }
+  const [settings, bank] = await Promise.all([getSettings(), receivingAccount(inv.clientAccountId)]);
   const pdfBytes = await invoicePdf(inv, settings, bank);
 
   const form = new FormData();
