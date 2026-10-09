@@ -83,6 +83,67 @@ model MailMessage {
   @@index([rfcMessageId])
 }
 
+// ---------- Billing (/admin/billing), backed by Xflow ----------
+// Xflow keeps the money side (clients = "partners", invoices = "receivables", payments, payouts).
+// These tables keep what Xflow doesn't: the invoice's line items and the business details printed on it.
+
+model Invoice {
+  id                String    @id @default(cuid())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  number            String    @unique
+  clientAccountId   String    // Xflow partner account id
+  clientName        String
+  clientEmail       String?
+  clientAddress     String?
+  clientTaxId       String?
+
+  issueDate         DateTime
+  dueDate           DateTime
+  currency          String    @default("USD")
+  items             Json      // [{ description, quantity, unitCents }]
+  totalCents        Int
+  notes             String?
+  purposeCode       String
+
+  status            String    @default("draft") // draft | registered | cancelled (payment state comes from Xflow)
+  source            String    @default("dashboard") // dashboard | xflow (imported: its PDF is the one uploaded to Xflow)
+  xflowFileId       String?
+  xflowReceivableId String?   @unique
+  paymentLinkId     String?
+  paymentLinkUrl    String?
+  sentAt            DateTime?
+  sentTo            String?
+
+  @@index([createdAt])
+}
+
+model BillingSettings {
+  id                 Int     @id @default(1)
+  legalName          String  @default("Shader Labs Private Limited")
+  address            String  @default("Plot No 6011, M. Durga Nagar, Ayodhya Nagar, Nagpur 440024, Maharashtra, India")
+  email              String  @default("mail@shaderlabs.in")
+  cin                String  @default("U85499PN2023PTC220410")
+  gstin              String?
+  pan                String?
+  lutNumber          String? // export of services under LUT, printed on invoices when set
+  invoicePrefix      String  @default("SL")
+  nextNumber         Int     @default(1)
+  numberYear         String? // financial year the counter belongs to, e.g. 2026-27 (restarts at 1 each April)
+  paymentTermsDays   Int     @default(15)
+  defaultPurposeCode String  @default("P0802")
+  footerNote         String? @default("Thank you for working with Shader Labs.")
+
+  // USD receiving account printed under "How to pay" (from the Xflow dashboard → Receiving Accounts).
+  bankName           String?
+  bankAddress        String?
+  bankAccountNumber  String?
+  bankAccountType    String? @default("Business")
+  bankSwift          String?
+  bankAchRouting     String?
+}
+
 model MailAttachment {
   id          String      @id @default(cuid())
   mail        MailMessage @relation(fields: [mailId], references: [id], onDelete: Cascade)

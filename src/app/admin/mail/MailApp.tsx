@@ -301,6 +301,9 @@ export function MailApp(props: Props) {
           </nav>
           <div className="space-y-1 border-t border-line p-3 text-sm">
             <p className="truncate px-2 pb-1 font-mono text-xs text-muted">{MAILBOX_ADDRESS}</p>
+            <Link href="/admin/billing" className="block rounded-md px-2 py-1.5 text-fg/75 hover:bg-surface-2 hover:text-fg">
+              Billing
+            </Link>
             <Link href="/admin" className="block rounded-md px-2 py-1.5 text-fg/75 hover:bg-surface-2 hover:text-fg">
               Enquiries
             </Link>

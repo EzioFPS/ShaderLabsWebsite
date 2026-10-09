@@ -76,6 +76,9 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             <Link href="/admin/mail" className="btn btn-primary btn-sm">
               Mail
             </Link>
+            <Link href="/admin/billing" className="btn btn-primary btn-sm">
+              Billing
+            </Link>
             <a href="/admin/export" className="btn btn-ghost btn-sm">
               Export CSV
             </a>
