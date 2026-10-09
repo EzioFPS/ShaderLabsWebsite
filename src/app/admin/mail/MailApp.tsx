@@ -19,6 +19,7 @@ import {
 } from "@/lib/mail-shared";
 import { logout } from "../actions";
 import { emptyTrash, syncNow, threadOp, type ThreadOp } from "./actions";
+import { AppControls } from "./AppControls";
 import { Compose } from "./Compose";
 import { MailFrame } from "./MailFrame";
 import { Avatar, Icon, sizeLabel } from "./ui";
@@ -33,6 +34,7 @@ type Props = {
   initialThread: ThreadMessage[] | null;
   initialCompose: ComposeInit | null;
   configured: boolean;
+  pushKey: string | null;
 };
 
 const SYNC_EVERY_MS = 60_000;
@@ -300,11 +302,15 @@ export function MailApp(props: Props) {
             )}
           </nav>
           <div className="space-y-1 border-t border-line p-3 text-sm">
-            <p className="truncate px-2 pb-1 font-mono text-xs text-muted">{MAILBOX_ADDRESS}</p>
+            <AppControls pushKey={props.pushKey} />
+            <p className="truncate px-2 pt-2 pb-1 font-mono text-xs text-muted">{MAILBOX_ADDRESS}</p>
+            <Link href="/admin" className="block rounded-md px-2 py-1.5 text-fg/75 hover:bg-surface-2 hover:text-fg">
+              Dashboard
+            </Link>
             <Link href="/admin/billing" className="block rounded-md px-2 py-1.5 text-fg/75 hover:bg-surface-2 hover:text-fg">
               Billing
             </Link>
-            <Link href="/admin" className="block rounded-md px-2 py-1.5 text-fg/75 hover:bg-surface-2 hover:text-fg">
+            <Link href="/admin/enquiries" className="block rounded-md px-2 py-1.5 text-fg/75 hover:bg-surface-2 hover:text-fg">
               Enquiries
             </Link>
             <form action={logout}>
@@ -332,6 +338,9 @@ export function MailApp(props: Props) {
                 {f === "inbox" && (unread.inbox ?? 0) > 0 && <span className="ml-1 font-mono text-xs">{unread.inbox}</span>}
               </Link>
             ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2 empty:hidden lg:hidden">
+            <AppControls pushKey={props.pushKey} compact />
           </div>
 
           <div className="flex items-center gap-2 border-b border-line px-3 py-3">

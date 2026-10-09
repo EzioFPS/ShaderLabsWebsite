@@ -1,0 +1,17 @@
+{
+  "name": "Shader Labs Mail",
+  "short_name": "SL Mail",
+  "description": "The mail@shaderlabs.in inbox",
+  "id": "/admin/mail",
+  "start_url": "/admin/mail",
+  "scope": "/admin/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0b0a",
+  "theme_color": "#0b0b0a",
+  "icons": [
+    { "src": "/admin/mail-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/admin/mail-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/admin/mail-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

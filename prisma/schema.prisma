@@ -144,6 +144,16 @@ model BillingSettings {
   bankAchRouting     String?
 }
 
+// Phones/browsers that asked for new-mail notifications (Web Push).
+model PushSubscription {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+}
+
 model MailAttachment {
   id          String      @id @default(cuid())
   mail        MailMessage @relation(fields: [mailId], references: [id], onDelete: Cascade)

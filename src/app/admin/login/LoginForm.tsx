@@ -3,10 +3,11 @@
 import { useActionState } from "react";
 import { login } from "../actions";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, action, pending] = useActionState(login, undefined);
   return (
     <form action={action} className="mt-8">
+      {next && <input type="hidden" name="next" value={next} />}
       <label htmlFor="password" className="field-label">
         Password
       </label>

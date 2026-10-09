@@ -1,12 +1,23 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { redirect } from "next/navigation";
 import { isAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { FOLDERS, type ComposeInit, type Folder } from "@/lib/mail-shared";
 import { listThreads, loadThread, unreadCounts } from "@/lib/mailbox";
+import { pushConfigured, vapidPublicKey } from "@/lib/push";
 import { MailApp } from "./MailApp";
 
-export const metadata: Metadata = { title: "Mail", robots: { index: false, follow: false } };
+// Installable as the "Shader Labs Mail" phone app (manifest + service worker in public/admin/).
+export const metadata: Metadata = {
+  title: "Mail",
+  robots: { index: false, follow: false },
+  manifest: "/admin/mail.webmanifest",
+  appleWebApp: { capable: true, title: "SL Mail", statusBarStyle: "black-translucent" },
+  icons: { apple: "/admin/mail-apple-touch-180.png" },
+  other: { "mobile-web-app-capable": "yes" },
+};
+// Edge-to-edge in the installed app (safe areas are handled in globals.css).
+export const viewport: Viewport = { themeColor: "#0b0b0a", width: "device-width", initialScale: 1, viewportFit: "cover" };
 export const dynamic = "force-dynamic";
 
 type Search = { folder?: string; q?: string; thread?: string; compose?: string; to?: string; subject?: string; limit?: string };
@@ -15,7 +26,7 @@ type Search = { folder?: string; q?: string; thread?: string; compose?: string; 
 // actions update the screen first and save in the background, and new mail is checked in the
 // background. This page only loads the folder's list (and a conversation when linked directly).
 export default async function MailPage({ searchParams }: { searchParams: Promise<Search> }) {
-  if (!(await isAdmin())) redirect("/admin/login");
+  if (!(await isAdmin())) redirect("/admin/login?next=/admin/mail");
   const sp = await searchParams;
   const folder: Folder = (FOLDERS as readonly string[]).includes(sp.folder ?? "") ? (sp.folder as Folder) : "inbox";
   const query = (sp.q ?? "").trim();
@@ -50,6 +61,7 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
       initialThread={initialThread?.length ? initialThread : null}
       initialCompose={initialCompose}
       configured={Boolean(process.env.RESEND_API_KEY)}
+      pushKey={pushConfigured() ? vapidPublicKey() : null}
     />
   );
 }

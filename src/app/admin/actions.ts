@@ -20,7 +20,9 @@ export async function login(_prev: { error?: string } | undefined, formData: For
   }
   const store = await cookies();
   store.set(SESSION_COOKIE, createSessionToken(), sessionCookieOptions);
-  redirect("/admin");
+  // Return to where the sign-in started (e.g. the mail app), but only within /admin.
+  const next = String(formData.get("next") ?? "");
+  redirect(/^\/admin(\/[A-Za-z0-9/_-]*)?$/.test(next) ? next : "/admin");
 }
 
 export async function logout() {
@@ -35,5 +37,6 @@ export async function updateStatus(formData: FormData) {
   const status = String(formData.get("status") ?? "");
   if (!id || !(STATUSES as readonly string[]).includes(status)) return;
   await db.enquiry.update({ where: { id }, data: { status } });
+  revalidatePath("/admin/enquiries");
   revalidatePath("/admin");
 }

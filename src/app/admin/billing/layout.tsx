@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Billing", robots: { index: false, fo
 export const dynamic = "force-dynamic";
 
 export default async function BillingLayout({ children }: { children: React.ReactNode }) {
-  if (!(await isAdmin())) redirect("/admin/login");
+  if (!(await isAdmin())) redirect("/admin/login?next=/admin/billing");
   const configured = xflowConfigured();
   const test = xflowTestMode();
 
@@ -19,7 +19,9 @@ export default async function BillingLayout({ children }: { children: React.Reac
       <div className="container-x">
         <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
-            <p className="eyebrow">Admin</p>
+            <Link href="/admin" className="eyebrow hover:text-fg">
+              ← Admin
+            </Link>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <h1 className="t-h1">Billing</h1>
               {configured && (
@@ -47,8 +49,11 @@ export default async function BillingLayout({ children }: { children: React.Reac
             <Link href="/admin/mail" className="btn btn-ghost btn-sm h-10">
               Mail
             </Link>
-            <Link href="/admin" className="btn btn-ghost btn-sm h-10">
+            <Link href="/admin/enquiries" className="btn btn-ghost btn-sm h-10">
               Enquiries
+            </Link>
+            <Link href="/admin" className="btn btn-ghost btn-sm h-10">
+              Dashboard
             </Link>
           </div>
         </div>

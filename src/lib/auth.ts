@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 
 export const SESSION_COOKIE = "sl_admin";
-const SESSION_DAYS = 7;
+const SESSION_DAYS = 30; // long enough that the installed mail app stays signed in
 
 function secret() {
   const s = process.env.ADMIN_SECRET;

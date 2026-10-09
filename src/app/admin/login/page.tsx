@@ -6,8 +6,10 @@ import { LoginForm } from "./LoginForm";
 export const metadata: Metadata = { title: "Admin login", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
-export default async function AdminLoginPage() {
-  if (await isAdmin()) redirect("/admin");
+export default async function AdminLoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const { next } = await searchParams;
+  const safeNext = next && /^\/admin(\/[A-Za-z0-9/_-]*)?$/.test(next) ? next : undefined;
+  if (await isAdmin()) redirect(safeNext ?? "/admin");
   return (
     <section className="flex min-h-[80svh] items-center pt-28 pb-20">
       <div className="container-x">
@@ -15,7 +17,7 @@ export default async function AdminLoginPage() {
           <p className="eyebrow">Admin</p>
           <h1 className="display display-sm mt-4">Enquiries inbox</h1>
           <p className="mt-3 text-muted">Enter the admin password to view contact form submissions.</p>
-          <LoginForm />
+          <LoginForm next={safeNext} />
         </div>
       </div>
     </section>

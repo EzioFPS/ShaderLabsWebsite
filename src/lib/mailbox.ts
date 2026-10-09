@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { MailMessage, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { MAILBOX_ADDRESS, type Address, type Folder, type ThreadMessage, type ThreadSummary } from "@/lib/mail-shared";
+import { notifyAll } from "@/lib/push";
 
 // The mail@shaderlabs.in mailbox: Resend receives and sends, Neon stores everything.
 
@@ -250,6 +251,15 @@ export async function ingestReceivedEmail(emailId: string) {
       },
     });
     mailId = created.id;
+    if (!spam) {
+      // Phone notification for the new email (never blocks or fails the ingest).
+      await notifyAll({
+        title: from.name || from.address,
+        body: [subject || "(no subject)", snippetOf(e.text, e.html)].filter(Boolean).join("\n").slice(0, 240),
+        url: `/admin/mail?thread=${encodeURIComponent(threadKey)}`,
+        tag: threadKey,
+      }).catch((err) => console.error("[mailbox] push failed:", err));
+    }
   }
 
   if (e.attachments?.length) {
