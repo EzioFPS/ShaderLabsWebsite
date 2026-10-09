@@ -44,8 +44,8 @@ Production mode: `npm run build` then `npm start`. `npm run dev:alt` runs a seco
 - `ADMIN_SECRET`: random string that signs the admin session cookie
 - `SITE_URL`: public URL of the site (SEO metadata, secure admin cookie)
 
-## Hosting on Render (free)
+## Hosting on Netlify (free)
 
-`render.yaml` is a Render Blueprint: Dashboard → New → Blueprint → pick this repo, then fill in the values it asks for. Free plan, Singapore region; the database lives on Neon so enquiries survive restarts and deploys.
+Netlify builds the site from this repo on every push to `main` (settings in `netlify.toml`). Pages are served from Netlify's CDN and the contact form and `/admin` run as Netlify Functions, so nothing sleeps. The database lives on Neon. Set the environment variables listed above in Netlify: Project configuration → Environment variables.
 
-Free Render sites sleep after 15 minutes idle. `src/instrumentation.ts` keeps it awake: on Render, the server pings its own public URL every 10 minutes. `.github/workflows/keep-awake.yml` is a backup that wakes it if it ever does sleep (GitHub runs scheduled jobs only every few hours in practice; it uses the repo variable `SITE_URL`).
+The free plan has 300 credits a month (a production deploy is 15), so batch changes into occasional pushes rather than many small ones.

@@ -1,8 +1,11 @@
 // Shader Labs website database: Postgres (hosted on Neon's free tier in production).
-// Tables are created/updated on start by `prisma db push` (see package.json).
+// Tables are created/updated by `prisma db push` during the Netlify build (netlify.toml)
+// and before `npm run dev` / `npm start` locally (package.json).
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local/build machines; rhel-openssl-3.0.x for Netlify Functions (AWS Lambda).
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

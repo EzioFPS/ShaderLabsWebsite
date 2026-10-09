@@ -1,0 +1,14 @@
+# Netlify: builds the Next.js site; server parts (contact form, /admin) run as Netlify Functions.
+# Environment variables (DATABASE_URL, RESEND_API_KEY, ADMIN_PASSWORD, ADMIN_SECRET, MAIL_FROM,
+# CONTACT_TO, SITE_URL) are set in the Netlify UI: Project configuration > Environment variables.
+[build]
+  # Create/update the database tables, then build.
+  command = "npx prisma db push --skip-generate && npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Ship Prisma's Linux query engine with the server function.
+[functions]
+  included_files = ["node_modules/.prisma/client/*.node", "node_modules/.prisma/client/schema.prisma"]
