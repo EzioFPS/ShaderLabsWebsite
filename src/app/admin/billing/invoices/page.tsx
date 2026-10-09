@@ -28,7 +28,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
     show === "all" ||
     (show === "open" && ["awaiting", "partial", "review", "ready", "action", "overdue"].includes(key)) ||
     (show === "overdue" && (key === "overdue" || key === "action")) ||
-    (show === "paid" && key === "paid") ||
+    (show === "paid" && (key === "paid" || key === "fee")) ||
     (show === "draft" && key === "draft");
   const list = rows.filter((x) => match(x.state.key));
 

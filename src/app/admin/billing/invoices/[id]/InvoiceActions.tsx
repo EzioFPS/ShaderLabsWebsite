@@ -1,11 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import type { FxQuote } from "@/lib/billing";
 import {
   cancelInvoiceAction,
+  completeInvoiceAction,
   deleteDraftAction,
   emailInvoiceAction,
+  fxQuoteAction,
   paymentLinkAction,
   previewWithdrawAction,
   registerAction,
@@ -27,9 +30,50 @@ type Props = {
   waitingCents: number;
   testMode: boolean;
   fullyPaid: boolean;
+  paidCents: number;
+  bankFeeCents: number; // left over after withdrawing: the bank's SWIFT fee
 };
 
 const usd = (c: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(c / 100);
+const inr = (c: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(c / 100);
+const rateText = (r: number) => `₹${r.toFixed(4)}`;
+
+/** Xflow's live rate inside the withdrawal screen; refreshed every 30 seconds while it's open. */
+function LiveRate({ amountCents, initial }: { amountCents: number; initial: FxQuote | null | undefined }) {
+  const [quote, setQuote] = useState<FxQuote | null>(initial ?? null);
+  const [at, setAt] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      const q = await fxQuoteAction(amountCents).catch(() => null);
+      if (q) {
+        setQuote(q);
+        setAt(new Date());
+      }
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [amountCents]);
+  if (!quote) return <p className="mt-4 text-sm text-muted">Xflow&apos;s live rate isn&apos;t available right now; the payout uses the rate at the moment it&apos;s processed.</p>;
+  return (
+    <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-line bg-surface-2 p-4 text-sm">
+      <div>
+        <dt className="text-xs text-muted">Mid-market rate (live)</dt>
+        <dd className="mt-0.5 font-mono tabular-nums">{rateText(quote.midMarket)}</dd>
+      </div>
+      <div>
+        <dt className="text-xs text-muted">Your rate from Xflow</dt>
+        <dd className="mt-0.5 font-mono tabular-nums">{rateText(quote.rate)}</dd>
+      </div>
+      <div className="col-span-2 border-t border-line pt-3">
+        <dt className="text-xs text-muted">You receive about</dt>
+        <dd className="mt-0.5 text-xl font-semibold tabular-nums">{inr(quote.inrCents)}</dd>
+      </div>
+      <p className="col-span-2 text-xs text-muted">
+        Updated {at.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" })} · refreshes every 30s. The final rate is
+        Xflow&apos;s at payout.
+      </p>
+    </dl>
+  );
+}
 
 function Step({ n, title, done, children }: { n: number; title: string; done?: boolean; children: React.ReactNode }) {
   return (
@@ -174,10 +218,29 @@ export function InvoiceActions(p: Props) {
         <Step n={5} title="Withdraw to your bank" done={p.fullyPaid}>
           {p.fullyPaid ? (
             <p className="text-sm text-muted">Fully paid and withdrawn.</p>
+          ) : p.bankFeeCents > 0 && p.waitingCents <= 0 ? (
+            <>
+              <p className="text-sm text-fg/85">
+                {usd(p.paidCents)} withdrawn. The remaining <span className="font-semibold">{usd(p.bankFeeCents)}</span> is the SWIFT fee JPMorgan deducted on the way,
+                not money the client owes.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  window.confirm(
+                    `Complete this invoice?\n\nXflow will record it as settled at ${usd(p.paidCents)}, with the ${usd(p.bankFeeCents)} difference as the bank's transfer fee. This changes the invoice in your live Xflow account.`,
+                  ) && run("complete", () => completeInvoiceAction(p.id))
+                }
+                disabled={pending}
+                className={`${btn} btn-primary mt-3`}
+              >
+                {isBusy("complete") ? "Completing…" : "Complete invoice"}
+              </button>
+            </>
           ) : p.waitingCents > 0 ? (
             <>
               <p className="text-sm text-fg/85">
-                <span className="font-semibold text-lime">{usd(p.waitingCents)}</span> has arrived from this client and is waiting in Xflow.
+                <span className="font-semibold text-lime">{usd(p.waitingCents)}</span> is available to withdraw for this invoice.
               </p>
               <button
                 type="button"
@@ -211,7 +274,8 @@ export function InvoiceActions(p: Props) {
         </div>
       )}
 
-      {!p.cancelled && !p.fullyPaid && (
+      {/* once money has been matched to it, an invoice can't be cancelled from here */}
+      {!p.cancelled && !p.fullyPaid && p.paidCents === 0 && (
         <div className="mt-6 border-t border-line pt-4">
           {p.registered ? (
             <button
@@ -254,6 +318,16 @@ export function InvoiceActions(p: Props) {
                 <p className="mt-2 text-sm text-muted">
                   Matched to this invoice and paid out in INR to {preview.bank || "your payout bank account"} at Xflow&apos;s rate.
                 </p>
+                <p className="mt-3 text-sm text-fg/85">
+                  Available in your Xflow account now: <span className="font-semibold tabular-nums">{usd(preview.availableCents ?? 0)}</span>
+                </p>
+                {(preview.invoiceLeftCents ?? 0) > (preview.amountCents ?? 0) && (
+                  <p className="mt-1 text-xs text-muted">
+                    The invoice has {usd(preview.invoiceLeftCents ?? 0)} left, but only {usd(preview.amountCents ?? 0)} arrived. The difference is usually the bank&apos;s
+                    SWIFT fee; you can complete the invoice after withdrawing.
+                  </p>
+                )}
+                <LiveRate amountCents={preview.amountCents ?? 0} initial={preview.quote} />
                 {preview.details && <PreviewDetails details={preview.details} />}
                 <p className="mt-4 text-xs text-muted">
                   {p.testMode ? "Test mode: no real money moves." : "This moves real money and can't be undone from here. Xflow pays it out to your bank, usually the next business day."}

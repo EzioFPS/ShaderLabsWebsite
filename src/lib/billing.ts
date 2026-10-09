@@ -88,6 +88,23 @@ export const getPayouts = () => cached("payouts", TTL, () => listAll<XPayout>("/
 export const getBalance = () => cached("balance", TTL, () => xflow<XBalance>("/v1/balance"));
 
 /** Live USD→INR payout rate (₹ per $1), or null if Xflow doesn't return one. */
+export type FxQuote = { midMarket: number; rate: number; inrCents: number; validTo: number };
+
+/** Xflow's live USD→INR quote for an exact amount: mid-market rate, the rate you get, and the INR out. Never cached. */
+export async function getFxQuote(usdCents: number): Promise<FxQuote | null> {
+  try {
+    const q = await xflow<{ buy?: { amount?: string }; rate?: { mid_market?: string | null; user?: string | null; valid_to?: number } }>("/v1/quotes", {
+      query: { "sell.currency": "USD", "sell.amount": fromCents(Math.max(100, usdCents)), "buy.currency": "INR", type: "payout_fx" },
+    });
+    const rate = Number(q.rate?.user);
+    const midMarket = Number(q.rate?.mid_market) || rate;
+    if (!Number.isFinite(rate) || rate <= 0) return null;
+    return { midMarket, rate, inrCents: Math.round(rate * usdCents), validTo: q.rate?.valid_to ?? 0 };
+  } catch {
+    return null;
+  }
+}
+
 export const getUsdInrRate = () =>
   cached("rate", TTL, async () => {
     try {
@@ -146,7 +163,10 @@ export function unmatchedFunds(_partnerId: string, deposits: XDeposit[], receiva
 
 // ---------- invoice state (what the dashboard shows) ----------
 
-export type InvoiceState = { key: "draft" | "review" | "action" | "awaiting" | "overdue" | "partial" | "ready" | "paid" | "cancelled"; label: string; tone: "good" | "warning" | "critical" | "neutral" };
+/** Shortfalls up to this much after a payment are treated as the bank's transfer (SWIFT) fee. */
+export const BANK_FEE_TOLERANCE_CENTS = 100_00;
+
+export type InvoiceState = { key: "draft" | "review" | "action" | "awaiting" | "overdue" | "partial" | "fee" | "ready" | "paid" | "cancelled"; label: string; tone: "good" | "warning" | "critical" | "neutral" };
 
 export function invoiceState(inv: Pick<Invoice, "status" | "dueDate" | "totalCents">, r?: XReceivable, unmatchedCents = 0): InvoiceState {
   if (inv.status === "cancelled" || r?.status === "cancelled") return { key: "cancelled", label: "Cancelled", tone: "neutral" };
@@ -160,6 +180,9 @@ export function invoiceState(inv: Pick<Invoice, "status" | "dueDate" | "totalCen
   const max = toCents(r.amount_maximum_reconcilable);
   if (r.status === "completed" || (done > 0 && (done >= total || (max > 0 && done >= max)))) return { key: "paid", label: "Paid", tone: "good" };
   if (unmatchedCents > 0) return { key: "ready", label: "Payment received", tone: "good" };
+  // Everything received has been withdrawn and only a small amount is left: that's the fee the
+  // intermediary bank (JPMorgan) takes from the SWIFT transfer, not money the client still owes.
+  if (done > 0 && total - done <= BANK_FEE_TOLERANCE_CENTS) return { key: "fee", label: `Paid · ${usd(total - done)} bank fee`, tone: "good" };
   if (done > 0) return { key: "partial", label: "Part paid", tone: "warning" };
   if (inv.dueDate.toISOString().slice(0, 10) < new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })) return { key: "overdue", label: "Overdue", tone: "critical" };
   return { key: "awaiting", label: "Awaiting payment", tone: "warning" };
@@ -280,14 +303,14 @@ export async function loadDashboard(range: Range) {
     const funds = r ? unmatchedFunds(r.account_id, deposits, receivables) : 0;
     const state = invoiceState(inv, r, funds);
     const paidCents = r ? toCents(r.amount_reconciled) : 0;
-    return { inv, r, state, paidCents, dueCents: state.key === "paid" ? 0 : Math.max(0, inv.totalCents - paidCents) };
+    return { inv, r, state, paidCents, dueCents: state.key === "paid" || state.key === "fee" ? 0 : Math.max(0, inv.totalCents - paidCents) };
   });
   const open = rows.filter((x) => !["paid", "cancelled", "draft"].includes(x.state.key));
   const outstanding = open.reduce((s, x) => s + x.dueCents, 0);
   const overdue = open.filter((x) => x.state.key === "overdue");
 
   const statusCounts = {
-    paid: rows.filter((x) => x.state.key === "paid" || x.state.key === "ready").length,
+    paid: rows.filter((x) => ["paid", "fee", "ready"].includes(x.state.key)).length,
     awaiting: rows.filter((x) => ["awaiting", "partial", "review"].includes(x.state.key)).length,
     overdue: rows.filter((x) => x.state.key === "overdue" || x.state.key === "action").length,
   };
@@ -309,6 +332,8 @@ export async function loadDashboard(range: Range) {
       overdueCount: overdue.length,
       overdueCents: overdue.reduce((s, x) => s + x.dueCents, 0),
       waitingUsd: usdIn(balance?.pending) + usdIn(balance?.available),
+      // Received in Xflow but not yet withdrawn against an invoice: what you can withdraw right now.
+      withdrawable: unmatchedFunds("", deposits, receivables),
       onTheWayInr: inrIn(balance?.payout_processing),
     },
     rate,
@@ -746,6 +771,14 @@ export async function withdraw(receivableId: string, amountCents: number) {
   return xflow<Record<string, unknown>>(`/v1/receivables/${receivableId}/reconcile`, {
     body: { amount: fromCents(amountCents) },
   });
+}
+
+/**
+ * Marks an invoice complete in Xflow when the client paid in full but the bank kept a transfer fee:
+ * the most that can be matched is lowered to what actually arrived, so Xflow treats it as settled.
+ */
+export async function completeReceivable(receivableId: string, receivedCents: number) {
+  return xflow<XReceivable>(`/v1/receivables/${receivableId}`, { body: { amount_maximum_reconcilable: fromCents(receivedCents) } });
 }
 
 export async function cancelReceivable(receivableId: string) {

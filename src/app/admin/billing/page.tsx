@@ -45,7 +45,7 @@ export default async function BillingOverview({ searchParams }: { searchParams: 
   const t = d.totals;
   const delta = t.lastMonth > 0 ? Math.round(((t.thisMonth - t.lastMonth) / t.lastMonth) * 100) : null;
   const rangeLabel = RANGES.find((x) => x.key === range)!.label.toLowerCase();
-  const attention = d.invoices.filter((x) => ["overdue", "action", "ready"].includes(x.state.key)).slice(0, 6);
+  const attention = d.invoices.filter((x) => ["overdue", "action", "ready", "fee"].includes(x.state.key)).slice(0, 6);
 
   return (
     <div className="space-y-6">
@@ -94,7 +94,12 @@ export default async function BillingOverview({ searchParams }: { searchParams: 
           sub={t.overdueCount ? `${t.overdueCount} overdue · ${usd(t.overdueCents)}` : "Nothing overdue"}
           subTone={t.overdueCount ? "warn" : undefined}
         />
-        <Tile label="Waiting in Xflow" value={usd(t.waitingUsd)} sub="Received, not yet sent to your bank" />
+        <Tile
+          label="Available to withdraw"
+          value={usd(t.withdrawable)}
+          sub={t.withdrawable && d.rate ? `≈ ${inr(Math.round(t.withdrawable * d.rate))} at Xflow's live rate` : "Received in Xflow, not yet withdrawn"}
+          subTone={t.withdrawable ? "up" : undefined}
+        />
         <Tile label={`Paid out to your bank, ${rangeLabel}`} value={inr(t.paidOutRange)} sub={t.onTheWayInr ? `${inr(t.onTheWayInr)} on the way now` : `${inr(t.paidOutAll)} all time`} />
       </div>
 

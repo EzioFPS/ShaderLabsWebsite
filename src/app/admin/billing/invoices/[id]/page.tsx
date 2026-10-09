@@ -70,8 +70,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             {[
               ["Paid against invoice", usd(paidCents)],
               ["Received, waiting", usd(waitingCents)],
-              // Paid in full may settle a little under the total (Xflow's fee), so nothing is due then.
-              ["Still due", usd(state.key === "paid" ? 0 : Math.max(0, inv.totalCents - paidCents))],
+              // A paid invoice can settle a little under its total: the bank's SWIFT fee, not money owed.
+              state.key === "fee"
+                ? ["Bank fee (SWIFT)", usd(Math.max(0, inv.totalCents - paidCents))]
+                : ["Still due", usd(state.key === "paid" ? 0 : Math.max(0, inv.totalCents - paidCents))],
             ].map(([k, v]) => (
               <div key={k} className="card p-5">
                 <p className="text-sm text-muted">{k}</p>
@@ -155,6 +157,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           waitingCents={waitingCents}
           testMode={xflowTestMode()}
           fullyPaid={state.key === "paid"}
+          paidCents={paidCents}
+          bankFeeCents={state.key === "fee" ? Math.max(0, inv.totalCents - paidCents) : 0}
         />
       </div>
     </div>

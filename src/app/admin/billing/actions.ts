@@ -6,9 +6,12 @@ import { isAdmin } from "@/lib/auth";
 import {
   cancelReceivable,
   createClient,
+  BANK_FEE_TOLERANCE_CENTS,
+  completeReceivable,
   createPaymentLink,
   financialYear,
   getDeposits,
+  getFxQuote,
   getPartners,
   getReceivables,
   getSettings,
@@ -24,6 +27,7 @@ import {
   unmatchedFunds,
   usd,
   withdraw,
+  type FxQuote,
   type LineItem,
 } from "@/lib/billing";
 import { db } from "@/lib/db";
@@ -171,7 +175,22 @@ export async function emailInvoiceAction(id: string, to: string): Promise<Action
   }
 }
 
-export type WithdrawPreview = { error?: string; amountCents?: number; bank?: string; details?: Record<string, unknown> };
+export type WithdrawPreview = {
+  error?: string;
+  amountCents?: number;
+  availableCents?: number; // everything received in Xflow and not yet withdrawn
+  invoiceLeftCents?: number; // what this invoice can still take
+  quote?: FxQuote | null;
+  bank?: string;
+  details?: Record<string, unknown>;
+};
+
+/** A fresh live rate for the withdrawal screen (quotes are only valid for about a minute). */
+export async function fxQuoteAction(usdCents: number): Promise<FxQuote | null> {
+  await guard();
+  if (!Number.isInteger(usdCents) || usdCents <= 0) return null;
+  return getFxQuote(usdCents);
+}
 
 export async function previewWithdrawAction(id: string): Promise<WithdrawPreview> {
   await guard();
@@ -183,13 +202,37 @@ export async function previewWithdrawAction(id: string): Promise<WithdrawPreview
     const r = receivables.find((x) => x.id === inv.xflowReceivableId);
     if (!r) return { error: "This invoice wasn't found in Xflow." };
     if (r.status !== "activated") return { error: "Xflow hasn't approved this invoice yet. Withdrawals open once its status is activated." };
-    const amountCents = Math.min(toCents(r.amount_reconcilable), unmatchedFunds(r.account_id, deposits, receivables));
+    // Never more than is actually sitting in Xflow (e.g. $3,950 after the bank's fee on a $4,000 invoice).
+    const availableCents = unmatchedFunds(r.account_id, deposits, receivables);
+    const invoiceLeftCents = toCents(r.amount_reconcilable);
+    const amountCents = Math.min(invoiceLeftCents, availableCents);
     if (amountCents <= 0) return { error: "There's no received money waiting to be withdrawn against this invoice yet." };
-    const details = await previewWithdrawal(r.id, amountCents);
+    const [details, quote] = await Promise.all([previewWithdrawal(r.id, amountCents).catch(() => undefined), getFxQuote(amountCents)]);
     const bank = address ? [address.name, address.bank_account?.last4 ? `account ending ${address.bank_account.last4}` : ""].filter(Boolean).join(" · ") : "";
-    return { amountCents, bank, details };
+    return { amountCents, availableCents, invoiceLeftCents, quote, bank, details };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** After withdrawing, closes an invoice whose small shortfall is the bank's transfer fee. */
+export async function completeInvoiceAction(id: string): Promise<ActionResult> {
+  await guard();
+  clearXflowCache();
+  try {
+    const inv = await loadInvoice(id);
+    if (!inv.xflowReceivableId) return { error: "This invoice isn't registered with Xflow." };
+    const r = (await getReceivables()).find((x) => x.id === inv.xflowReceivableId);
+    if (!r) return { error: "This invoice wasn't found in Xflow." };
+    const received = toCents(r.amount_reconciled);
+    const short = (toCents(r.invoice?.amount) || inv.totalCents) - received;
+    if (received <= 0) return { error: "Nothing has been withdrawn against this invoice yet." };
+    if (short <= 0 || r.status === "completed") return { error: "This invoice is already complete." };
+    if (short > BANK_FEE_TOLERANCE_CENTS) return { error: `${usd(short)} is still missing, which is more than a bank fee. Complete it in Xflow if that's intended.` };
+    await completeReceivable(r.id, received);
+    return done(`/admin/billing/invoices/${id}`, `Completed. ${usd(short)} recorded as the bank's transfer fee.`);
+  } catch (err) {
+    return fail(err);
   }
 }
 
