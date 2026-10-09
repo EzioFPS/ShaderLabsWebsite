@@ -12,35 +12,48 @@ async function guard() {
   if (!(await isAdmin())) redirect("/admin/login");
 }
 
-/** Thread-level actions from the reading pane. */
-export async function threadAction(formData: FormData) {
-  await guard();
-  const thread = String(formData.get("thread") ?? "");
-  const op = String(formData.get("op") ?? "");
-  const back = String(formData.get("back") ?? "/admin/mail");
-  if (!thread) return;
-  const where = { threadKey: thread };
+export type ThreadOp = "read" | "unread" | "star" | "unstar" | "move" | "delete";
 
-  if (op === "unread") {
+/**
+ * Conversation-level changes. The inbox updates itself on screen first and calls this in the
+ * background, then refreshes, so nothing here redirects.
+ */
+export async function threadOp(threadKey: string, op: ThreadOp, to?: string) {
+  await guard();
+  if (!threadKey) return;
+  const where = { threadKey };
+
+  if (op === "read") {
+    await db.mailMessage.updateMany({ where: { ...where, read: false }, data: { read: true } });
+  } else if (op === "unread") {
     // Only the newest incoming message, like most mail apps.
-    const last = await db.mailMessage.findFirst({ where: { ...where, direction: "in" }, orderBy: { date: "desc" } });
+    const last = await db.mailMessage.findFirst({ where: { ...where, direction: "in" }, orderBy: { date: "desc" }, select: { id: true } });
     if (last) await db.mailMessage.update({ where: { id: last.id }, data: { read: false } });
   } else if (op === "star" || op === "unstar") {
     await db.mailMessage.updateMany({ where, data: { starred: op === "star" } });
   } else if (op === "move") {
-    const to = String(formData.get("to") ?? "");
-    if (!(MOVE_TARGETS as readonly string[]).includes(to)) return;
+    if (!to || !(MOVE_TARGETS as readonly string[]).includes(to)) return;
     // Sent copies stay in Sent unless the whole conversation goes to the trash.
     if (to === "trash") await db.mailMessage.updateMany({ where, data: { folder: "trash" } });
-    else {
-      await db.mailMessage.updateMany({ where: { ...where, direction: "in" }, data: { folder: to } });
-      await db.mailMessage.updateMany({ where: { ...where, direction: "out" }, data: { folder: "sent" } });
-    }
+    else
+      await Promise.all([
+        db.mailMessage.updateMany({ where: { ...where, direction: "in" }, data: { folder: to } }),
+        db.mailMessage.updateMany({ where: { ...where, direction: "out" }, data: { folder: "sent" } }),
+      ]);
   } else if (op === "delete") {
     await db.mailMessage.deleteMany({ where: { ...where, folder: "trash" } });
   }
-  revalidatePath("/admin/mail");
-  redirect(op === "unread" || op === "star" || op === "unstar" ? back : back.replace(/([?&])thread=[^&]*/, "$1").replace(/[?&]$/, ""));
+}
+
+/** Checks Resend for mail the webhook may have missed. Returns how many messages were added. */
+export async function syncNow(force = false) {
+  await guard();
+  try {
+    return await syncReceived(force);
+  } catch (err) {
+    console.error("[mailbox] sync failed:", err);
+    return 0;
+  }
 }
 
 export async function emptyTrash() {
@@ -48,17 +61,6 @@ export async function emptyTrash() {
   await db.mailMessage.deleteMany({ where: { folder: "trash" } });
   revalidatePath("/admin/mail");
   redirect("/admin/mail?folder=trash");
-}
-
-export async function refreshInbox() {
-  await guard();
-  try {
-    await syncReceived(true);
-  } catch (err) {
-    console.error("[mailbox] manual sync failed:", err);
-  }
-  revalidatePath("/admin/mail");
-  redirect("/admin/mail");
 }
 
 export type SendState = { error?: string };

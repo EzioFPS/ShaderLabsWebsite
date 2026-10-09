@@ -77,6 +77,14 @@ try {
   await client.connect();
 } catch (err) {
   console.error(`\nCould not sign in to Titan: ${err.responseText || err.message}`);
+  if (err.serverResponseCode) console.error(`Titan's response code: ${err.serverResponseCode}`);
+  if (err.authenticationFailed) {
+    console.error(
+      "\nTitan rejected the login. If the password is right, Titan is blocking outside mail apps:\n" +
+        "  - turn on third-party / IMAP access for this mailbox in Titan's settings, or\n" +
+        "  - if two-step verification is on, create an app password in Titan and use that here.",
+    );
+  }
   process.exit(1);
 }
 

@@ -2,16 +2,12 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { MailMessage, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { MAILBOX_ADDRESS, type Address, type Folder, type ThreadMessage, type ThreadSummary } from "@/lib/mail-shared";
 
 // The mail@shaderlabs.in mailbox: Resend receives and sends, Neon stores everything.
 
-export const MAILBOX_ADDRESS = "mail@shaderlabs.in";
+export { FOLDERS, MAILBOX_ADDRESS, MOVE_TARGETS, formatAddress, type Address, type Folder } from "@/lib/mail-shared";
 export const MAILBOX_FROM = process.env.MAILBOX_FROM || `Shader Labs <${MAILBOX_ADDRESS}>`;
-export const FOLDERS = ["inbox", "starred", "sent", "archive", "spam", "trash"] as const;
-export type Folder = (typeof FOLDERS)[number];
-export const MOVE_TARGETS = ["inbox", "archive", "spam", "trash"] as const;
-
-export type Address = { name?: string; address: string };
 
 const RESEND = "https://api.resend.com";
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -46,7 +42,97 @@ export function parseAddressList(raw: string | string[] | null | undefined): Add
 }
 
 export const asAddresses = (v: Prisma.JsonValue): Address[] => (Array.isArray(v) ? (v as Address[]) : []);
-export const formatAddress = (a: Address) => (a.name ? `${a.name} <${a.address}>` : a.address);
+const formatAddr = (a: Address) => (a.name ? `${a.name} <${a.address}>` : a.address);
+
+// ---------- reading (list + conversation) ----------
+
+export async function listThreads(folder: Folder, query: string, limit: number) {
+  const where: Prisma.MailMessageWhereInput = {
+    ...(folder === "starred" ? { starred: true, folder: { not: "trash" } } : { folder }),
+    ...(query
+      ? {
+          OR: [
+            { subject: { contains: query, mode: "insensitive" } },
+            { fromAddress: { contains: query, mode: "insensitive" } },
+            { fromName: { contains: query, mode: "insensitive" } },
+            { text: { contains: query, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+  const rows = await db.mailMessage.findMany({
+    where,
+    orderBy: { date: "desc" },
+    take: limit * 3,
+    select: { threadKey: true, date: true, fromAddress: true, fromName: true, to: true, subject: true, snippet: true, read: true, starred: true, hasAttachments: true, direction: true },
+  });
+  const threads = new Map<string, ThreadSummary>();
+  for (const r of rows) {
+    const t = threads.get(r.threadKey);
+    if (!t) {
+      threads.set(r.threadKey, {
+        threadKey: r.threadKey,
+        date: r.date.toISOString(),
+        direction: r.direction,
+        fromAddress: r.fromAddress,
+        fromName: r.fromName,
+        to: asAddresses(r.to),
+        subject: r.subject,
+        snippet: r.snippet,
+        count: 1,
+        unread: !r.read && r.direction === "in",
+        starred: r.starred,
+        files: r.hasAttachments,
+      });
+    } else {
+      t.count++;
+      t.unread ||= !r.read && r.direction === "in";
+      t.starred ||= r.starred;
+      t.files ||= r.hasAttachments;
+    }
+  }
+  const all = [...threads.values()];
+  return { threads: all.slice(0, limit), hasMore: all.length > limit };
+}
+
+export async function unreadCounts() {
+  const rows = await db.mailMessage.groupBy({ by: ["folder"], where: { read: false, direction: "in" }, _count: { _all: true } });
+  return Object.fromEntries(rows.map((r) => [r.folder, r._count._all])) as Record<string, number>;
+}
+
+/** A whole conversation, oldest first, with cid: images inlined as data URIs. */
+export async function loadThread(threadKey: string): Promise<ThreadMessage[]> {
+  const messages = await db.mailMessage.findMany({
+    where: { threadKey },
+    orderBy: { date: "asc" },
+    include: { attachments: { select: { id: true, filename: true, size: true, inline: true, contentId: true } } },
+  });
+  const withCid = messages.filter((m) => m.html?.includes("cid:")).map((m) => m.id);
+  const inline = new Map<string, string>();
+  if (withCid.length) {
+    const parts = await db.mailAttachment.findMany({ where: { mailId: { in: withCid }, contentId: { not: null }, size: { lte: 3 * 1024 * 1024 } } });
+    for (const p of parts) inline.set(`${p.mailId}:${p.contentId}`, `data:${p.contentType};base64,${Buffer.from(p.data).toString("base64")}`);
+  }
+  return messages.map((m) => ({
+    id: m.id,
+    date: m.date.toISOString(),
+    direction: m.direction,
+    folder: m.folder,
+    fromAddress: m.fromAddress,
+    fromName: m.fromName,
+    to: asAddresses(m.to),
+    cc: asAddresses(m.cc),
+    bcc: asAddresses(m.bcc),
+    replyTo: asAddresses(m.replyTo),
+    subject: m.subject,
+    text: m.text,
+    html: m.html ? m.html.replace(/cid:([^"'\s)>]+)/gi, (all, cid) => inline.get(`${m.id}:${cid}`) ?? all) : null,
+    snippet: m.snippet,
+    read: m.read,
+    starred: m.starred,
+    attachments: m.attachments,
+  }));
+}
 
 export function snippetOf(text?: string | null, html?: string | null) {
   const src = text || (html ? html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ") : "");
@@ -255,9 +341,9 @@ export async function sendMail(input: {
     method: "POST",
     body: JSON.stringify({
       from: MAILBOX_FROM,
-      to: input.to.map(formatAddress),
-      cc: input.cc.length ? input.cc.map(formatAddress) : undefined,
-      bcc: input.bcc.length ? input.bcc.map(formatAddress) : undefined,
+      to: input.to.map(formatAddr),
+      cc: input.cc.length ? input.cc.map(formatAddr) : undefined,
+      bcc: input.bcc.length ? input.bcc.map(formatAddr) : undefined,
       subject: input.subject,
       text: input.text,
       html,

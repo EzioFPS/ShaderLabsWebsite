@@ -1,20 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
+import type { ComposeInit } from "@/lib/mail-shared";
 import { sendAction, type SendState } from "./actions";
 
-type Props = {
-  mode: "new" | "reply" | "replyall" | "forward";
-  refId?: string;
-  to?: string;
-  cc?: string;
-  subject?: string;
-  body?: string;
-  forwardedFiles?: string[];
-  cancelHref: string;
-};
+type Props = ComposeInit & { onCancel: () => void };
 
 function SendButton() {
   const { pending } = useFormStatus();
@@ -25,7 +16,7 @@ function SendButton() {
   );
 }
 
-export function Compose({ mode, refId, to = "", cc = "", subject = "", body = "", forwardedFiles = [], cancelHref }: Props) {
+export function Compose({ mode, refId, to = "", cc = "", subject = "", body = "", forwardedFiles = [], onCancel }: Props) {
   const [state, action] = useActionState<SendState, FormData>(sendAction, {});
   const [showBcc, setShowBcc] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
@@ -39,9 +30,9 @@ export function Compose({ mode, refId, to = "", cc = "", subject = "", body = ""
 
       <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
         <h2 className="t-h3">{title}</h2>
-        <Link href={cancelHref} className="text-sm text-muted hover:text-fg">
+        <button type="button" onClick={onCancel} className="text-sm text-muted hover:text-fg">
           Discard
-        </Link>
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-5 py-3" data-lenis-prevent>

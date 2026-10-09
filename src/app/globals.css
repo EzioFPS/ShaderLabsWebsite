@@ -296,6 +296,10 @@ html.lenis, html.lenis body { height: auto; }
 .lenis [data-lenis-prevent] { overscroll-behavior: contain; }
 .lenis.lenis-smooth iframe { pointer-events: none; }
 
+/* Mail app (/admin/mail): full-screen, no site footer, and email links stay clickable. */
+body:has(.mail-app) > footer, body:has(.mail-app) footer { display: none; }
+.lenis.lenis-smooth .mail-app iframe { pointer-events: auto; }
+
 @media (prefers-reduced-motion: reduce) {
   [data-lines] .line-inner { animation: none !important; transform: none !important; }
   [data-reveal] { animation: none !important; opacity: 1 !important; transform: none !important; }
