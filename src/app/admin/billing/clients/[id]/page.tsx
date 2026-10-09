@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
-import { clientTaxIds, depositClients, getDeposits, getPartners, getReceivables, partnerName, toCents, usd } from "@/lib/billing";
+import { addressLine2, clientTaxIds, depositClients, getDeposits, getPartners, getReceivables, partnerName, toCents, usd } from "@/lib/billing";
 import { db } from "@/lib/db";
 import { ClientEditForm } from "./ClientEditForm";
 
@@ -96,8 +96,9 @@ async function load(id: string) {
       name: b.legal_name ?? "",
       email: b.email ?? "",
       type: b.type ?? "company",
-      line1: a.line1 ?? "",
-      line2: a.line2 ?? "",
+      line1: a.line1?.trim() ?? "",
+      // A line 2 that just repeats line 1 shows as empty; saving then clears it in Xflow too.
+      line2: addressLine2(a),
       city: a.city ?? "",
       state: a.state ?? "",
       postalCode: a.postal_code ?? "",

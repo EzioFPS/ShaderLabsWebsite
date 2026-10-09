@@ -231,7 +231,7 @@ export async function importFromXflow(receivables: XReceivable[], partners: XAcc
           clientAccountId: r.account_id,
           clientName: partnerName(p),
           clientEmail: p?.business_details?.email ?? null,
-          clientAddress: a ? [a.line1, a.line2, [a.city, a.state, a.postal_code].filter(Boolean).join(" "), a.country].filter(Boolean).join(", ") : null,
+          clientAddress: formatClientAddress(a),
           issueDate: r.invoice?.creation_date ? new Date(`${r.invoice.creation_date}T00:00:00Z`) : created,
           dueDate: r.invoice?.due_date ? new Date(`${r.invoice.due_date}T00:00:00Z`) : created,
           currency: r.invoice?.currency ?? r.currency,
@@ -800,6 +800,18 @@ export async function simulatePayment(inv: Invoice, amountCents: number) {
   });
 }
 
+type PhysicalAddress = NonNullable<NonNullable<XAccount["business_details"]>["physical_address"]>;
+
+/** Line 2, unless it's blank or just repeats line 1 (Xflow sometimes holds the street twice). */
+export const addressLine2 = (a: PhysicalAddress) => {
+  const l2 = a.line2?.trim() ?? "";
+  return l2 && l2.toLowerCase() !== (a.line1?.trim() ?? "").toLowerCase() ? l2 : "";
+};
+
+/** One-line client address for invoices. */
+export const formatClientAddress = (a?: PhysicalAddress | null) =>
+  a ? [a.line1?.trim(), addressLine2(a), [a.city, a.state, a.postal_code].filter(Boolean).join(" "), a.country].filter(Boolean).join(", ") : null;
+
 export type ClientInput = {
   nickname: string;
   name: string;
@@ -820,11 +832,12 @@ export async function updateClient(current: XAccount, input: ClientInput) {
   const b = current.business_details ?? {};
   const a = b.physical_address ?? {};
   const address = { line1: input.line1, line2: input.line2, city: input.city, state: input.state, postal_code: input.postalCode, country: input.country };
-  const addressChanged = (Object.keys(address) as (keyof typeof address)[]).some((k) => (a[k] ?? "") !== address[k]);
+  const addressChanged = (Object.keys(address) as (keyof typeof address)[]).some((k) => (a[k] ?? "").trim() !== address[k]);
   const details: Record<string, unknown> = {};
   if ((b.legal_name ?? "") !== input.name) details.legal_name = input.name;
   if ((b.email ?? "") !== input.email) details.email = input.email;
-  if (addressChanged) details.physical_address = { ...address, line2: address.line2 || undefined, state: address.state || undefined };
+  // Cleared fields are sent as "" (not left out), otherwise Xflow keeps the old value.
+  if (addressChanged) details.physical_address = address;
   const body: Record<string, unknown> = {};
   if ((current.nickname ?? "") !== input.nickname) body.nickname = input.nickname;
   if (Object.keys(details).length) body.business_details = details;
