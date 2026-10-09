@@ -8,6 +8,7 @@ import { shortDate } from "@/lib/mail-shared";
 import { listThreads, unreadCounts } from "@/lib/mailbox";
 import { xflowConfigured } from "@/lib/xflow";
 import { logout } from "./actions";
+import { LiveRateCard } from "./billing/LiveRateCard";
 
 export const metadata: Metadata = { title: "Admin", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -276,6 +277,12 @@ export default async function AdminDashboard() {
             )}
           </Panel>
         </div>
+
+        {xflowOn && (
+          <div className="mt-4">
+            <LiveRateCard compact availableCents={xflow?.totals.withdrawable ?? 0} />
+          </div>
+        )}
       </div>
     </section>
   );

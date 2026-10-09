@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/auth";
 import Link from "next/link";
 import { inr, loadDashboard, usd, type Range } from "@/lib/billing";
 import { BarList, MonthlyColumns, StatusBar } from "./charts";
+import { LiveRateCard } from "./LiveRateCard";
 import { StatePill } from "./StatePill";
 
 const RANGES: { key: Range; label: string }[] = [
@@ -79,6 +80,8 @@ export default async function BillingOverview({ searchParams }: { searchParams: 
           <span className="text-muted"> · {d.partnersCount} client{d.partnersCount === 1 ? "" : "s"}</span>
         </p>
       </div>
+
+      <LiveRateCard availableCents={t.withdrawable} />
 
       {/* KPI row */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 [&>*]:min-w-0">

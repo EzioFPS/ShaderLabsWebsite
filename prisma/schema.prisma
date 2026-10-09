@@ -185,3 +185,20 @@ model ClientProfile {
   taxId     String?
   updatedAt DateTime @updatedAt
 }
+
+// Xflow's USD→INR rate, sampled while Billing is open (at most every 10 minutes) for the rate chart.
+model FxSample {
+  id        String   @id @default(cuid())
+  at        DateTime @default(now())
+  midMarket Float
+  rate      Float
+
+  @@index([at])
+}
+
+// Xflow webhook events already handled (Xflow may deliver the same event more than once).
+model XflowEvent {
+  id        String   @id
+  type      String
+  createdAt DateTime @default(now())
+}

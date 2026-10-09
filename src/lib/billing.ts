@@ -105,6 +105,26 @@ export async function getFxQuote(usdCents: number): Promise<FxQuote | null> {
   }
 }
 
+const SAMPLE_EVERY_MS = 10 * 60 * 1000;
+
+/** The live rate for $1, saved for the rate chart when the last sample is over 10 minutes old. */
+export async function liveRate() {
+  const q = await getFxQuote(100_00);
+  if (q) {
+    const last = await db.fxSample.findFirst({ orderBy: { at: "desc" }, select: { at: true } });
+    if (!last || Date.now() - last.at.getTime() > SAMPLE_EVERY_MS) await db.fxSample.create({ data: { midMarket: q.midMarket, rate: q.rate } }).catch(() => {});
+  }
+  return q;
+}
+
+/** Saved rate samples for the chart, oldest first, thinned to at most `points`. */
+export async function rateHistory(days = 30, points = 120) {
+  const rows = await db.fxSample.findMany({ where: { at: { gte: new Date(Date.now() - days * 86_400_000) } }, orderBy: { at: "asc" }, select: { at: true, midMarket: true } });
+  const step = Math.max(1, Math.ceil(rows.length / points));
+  const out = rows.filter((_, i) => i % step === 0 || i === rows.length - 1);
+  return out.map((r) => ({ t: r.at.getTime(), v: r.midMarket }));
+}
+
 export const getUsdInrRate = () =>
   cached("rate", TTL, async () => {
     try {
