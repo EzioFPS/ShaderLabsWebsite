@@ -48,4 +48,4 @@ Production mode: `npm run build` then `npm start`. `npm run dev:alt` runs a seco
 
 `render.yaml` is a Render Blueprint: Dashboard → New → Blueprint → pick this repo, then fill in the values it asks for. Free plan, Singapore region; the database lives on Neon so enquiries survive restarts and deploys.
 
-Free Render sites sleep after 15 minutes idle. `.github/workflows/keep-awake.yml` pings the site every 10 minutes; set the repo variable `SITE_URL` (Settings → Secrets and variables → Actions → Variables) to switch it on. GitHub pauses scheduled jobs after 60 days without commits and emails you; re-enable it from the Actions tab.
+Free Render sites sleep after 15 minutes idle. `src/instrumentation.ts` keeps it awake: on Render, the server pings its own public URL every 10 minutes. `.github/workflows/keep-awake.yml` is a backup that wakes it if it ever does sleep (GitHub runs scheduled jobs only every few hours in practice; it uses the repo variable `SITE_URL`).
