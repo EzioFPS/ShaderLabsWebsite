@@ -8,6 +8,9 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # These are public on purpose (contact address, sender, site URL) and appear on the site,
+  # so the secrets scanner skips them. Real secrets (API key, passwords, DB URL) are still scanned.
+  SECRETS_SCAN_OMIT_KEYS = "CONTACT_TO,MAIL_FROM,SITE_URL"
 
 # Ship Prisma's Linux query engine with the server function.
 [functions]
