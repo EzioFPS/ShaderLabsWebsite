@@ -48,7 +48,10 @@ export async function isAdmin() {
 
 export const sessionCookieOptions = {
   httpOnly: true,
-  sameSite: "strict" as const,
+  // "lax", not "strict": phones don't send strict cookies when the installed mail app is opened
+  // from the home screen or a notification, which made it ask for the password every time.
+  // Writes stay protected: server actions check the request's origin, and lax cookies aren't sent on cross-site POSTs.
+  sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production" && process.env.SITE_URL?.startsWith("https"),
   path: "/",
   maxAge: SESSION_DAYS * 24 * 60 * 60,
