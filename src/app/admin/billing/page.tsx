@@ -81,12 +81,18 @@ export default async function BillingOverview({ searchParams }: { searchParams: 
       </div>
 
       {/* KPI row */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 [&>*]:min-w-0">
         <Tile
           label="Received this month"
           value={usd(t.thisMonth)}
-          sub={delta === null ? "No payments last month to compare" : `${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month (${usd(t.lastMonth)})`}
-          subTone={delta === null ? undefined : delta >= 0 ? "up" : "down"}
+          sub={
+            delta === null
+              ? "No payments last month to compare"
+              : delta === 0
+                ? `Same as last month (${usd(t.lastMonth)})`
+                : `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}% vs last month (${usd(t.lastMonth)})`
+          }
+          subTone={delta === null || delta === 0 ? undefined : delta > 0 ? "up" : "down"}
         />
         <Tile
           label="Outstanding on invoices"
@@ -116,7 +122,7 @@ export default async function BillingOverview({ searchParams }: { searchParams: 
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         <div className="card p-5 md:p-7">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="t-h3">Paid out to your bank</h2>
@@ -137,7 +143,7 @@ export default async function BillingOverview({ searchParams }: { searchParams: 
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-5">
+      <div className="grid gap-6 lg:grid-cols-5 [&>*]:min-w-0">
         <div className="card p-5 md:p-7 lg:col-span-2">
           <div className="flex items-baseline justify-between gap-2">
             <h2 className="t-h3">Invoices</h2>
@@ -177,7 +183,7 @@ export default async function BillingOverview({ searchParams }: { searchParams: 
       </div>
 
       {/* recent activity */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         <div className="card p-5 md:p-7">
           <h2 className="t-h3">Recent payments in</h2>
           {d.recentDeposits.length ? (
