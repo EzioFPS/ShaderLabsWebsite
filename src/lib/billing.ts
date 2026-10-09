@@ -800,6 +800,50 @@ export async function simulatePayment(inv: Invoice, amountCents: number) {
   });
 }
 
+export type ClientInput = {
+  nickname: string;
+  name: string;
+  email: string;
+  line1: string;
+  line2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+};
+
+/**
+ * Updates a client in Xflow. Only fields that actually changed are sent, so an untouched name or
+ * address never triggers a fresh review at Xflow.
+ */
+export async function updateClient(current: XAccount, input: ClientInput) {
+  const b = current.business_details ?? {};
+  const a = b.physical_address ?? {};
+  const address = { line1: input.line1, line2: input.line2, city: input.city, state: input.state, postal_code: input.postalCode, country: input.country };
+  const addressChanged = (Object.keys(address) as (keyof typeof address)[]).some((k) => (a[k] ?? "") !== address[k]);
+  const details: Record<string, unknown> = {};
+  if ((b.legal_name ?? "") !== input.name) details.legal_name = input.name;
+  if ((b.email ?? "") !== input.email) details.email = input.email;
+  if (addressChanged) details.physical_address = { ...address, line2: address.line2 || undefined, state: address.state || undefined };
+  const body: Record<string, unknown> = {};
+  if ((current.nickname ?? "") !== input.nickname) body.nickname = input.nickname;
+  if (Object.keys(details).length) body.business_details = details;
+  if (!Object.keys(body).length) return current;
+  return xflow<XAccount>(`/v1/accounts/${current.id}`, { body });
+}
+
+/** Tax IDs per client: what was saved on the client, else the one on their latest invoice. */
+export async function clientTaxIds() {
+  const [profiles, invoices] = await Promise.all([
+    db.clientProfile.findMany(),
+    db.invoice.findMany({ where: { clientTaxId: { not: null } }, orderBy: { issueDate: "desc" }, select: { clientAccountId: true, clientTaxId: true } }),
+  ]);
+  const out = new Map<string, string>();
+  for (const i of invoices) if (i.clientTaxId && !out.has(i.clientAccountId)) out.set(i.clientAccountId, i.clientTaxId);
+  for (const p of profiles) if (p.taxId) out.set(p.accountId, p.taxId);
+  return out;
+}
+
 export async function createClient(input: { name: string; email: string; line1: string; city: string; state: string; postalCode: string; country: string }) {
   const account = await xflow<XAccount>("/v1/accounts", {
     body: {

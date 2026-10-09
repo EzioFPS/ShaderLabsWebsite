@@ -5,7 +5,7 @@ import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createInvoiceAction, type ActionResult } from "../../actions";
 
-type Client = { id: string; name: string; email?: string };
+type Client = { id: string; name: string; email?: string; taxId?: string };
 type Row = { description: string; quantity: string; price: string };
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -37,6 +37,7 @@ export function InvoiceForm({
 }) {
   const [state, action] = useActionState<ActionResult, FormData>(createInvoiceAction, {});
   const [rows, setRows] = useState<Row[]>([{ description: "", quantity: "1", price: "" }]);
+  const [taxId, setTaxId] = useState(""); // filled from the chosen client's saved tax ID, still editable
   const items = rows.map((r) => ({ description: r.description, quantity: Number(r.quantity) || 0, unitCents: cents(r.price) }));
   const total = items.reduce((s, i) => s + Math.round(i.unitCents * i.quantity), 0);
   const set = (i: number, patch: Partial<Row>) => setRows((list) => list.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -56,7 +57,14 @@ export function InvoiceForm({
             Client
           </label>
           {clients.length ? (
-            <select id="client" name="client" required defaultValue="" className="field field-box mt-1.5 h-11 w-full">
+            <select
+              id="client"
+              name="client"
+              required
+              defaultValue=""
+              onChange={(e) => setTaxId(clients.find((c) => c.id === e.target.value)?.taxId ?? "")}
+              className="field field-box mt-1.5 h-11 w-full"
+            >
               <option value="" disabled>
                 Choose a client
               </option>
@@ -86,7 +94,7 @@ export function InvoiceForm({
 
         <label className="block text-sm text-muted">
           Client tax ID (optional)
-          <input name="clientTaxId" className="field field-box mt-1.5 h-11 w-full" placeholder="e.g. VAT / EIN / RUT, printed under the client's name" />
+          <input name="clientTaxId" value={taxId} onChange={(e) => setTaxId(e.target.value)} className="field field-box mt-1.5 h-11 w-full" placeholder="e.g. VAT / EIN / RUT, printed under the client's name" />
         </label>
 
         <div className="grid gap-4 sm:grid-cols-3">

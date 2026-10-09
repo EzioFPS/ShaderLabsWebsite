@@ -178,3 +178,10 @@ model MailAttachment {
 
   @@index([mailId])
 }
+
+// Client details Xflow doesn't keep (e.g. the tax ID printed on invoices), by Xflow account id.
+model ClientProfile {
+  accountId String   @id
+  taxId     String?
+  updatedAt DateTime @updatedAt
+}

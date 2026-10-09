@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { depositClients, getDeposits, getPartners, getReceivables, partnerName, toCents, usd } from "@/lib/billing";
 import { db } from "@/lib/db";
@@ -51,7 +52,14 @@ export default async function ClientsPage() {
               {rows.map((c) => (
                 <tr key={c.id} className="border-t border-line">
                   <td className="px-5 py-3.5">
-                    <p className="text-fg">{c.name}</p>
+                    <p className="flex flex-wrap items-baseline gap-x-3">
+                      <Link href={`/admin/billing/clients/${c.id}`} className="text-fg hover:text-lime">
+                        {c.name}
+                      </Link>
+                      <Link href={`/admin/billing/clients/${c.id}`} className="text-xs text-muted underline-offset-2 hover:text-fg hover:underline">
+                        Edit
+                      </Link>
+                    </p>
                     {c.email && <p className="text-xs text-muted">{c.email}</p>}
                     {c.status !== "activated" && <p className="text-xs text-[#fab219] capitalize">{c.status.replace(/_/g, " ")}</p>}
                   </td>

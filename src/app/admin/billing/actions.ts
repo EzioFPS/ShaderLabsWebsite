@@ -7,6 +7,7 @@ import {
   cancelReceivable,
   createClient,
   BANK_FEE_TOLERANCE_CENTS,
+  clientTaxIds,
   completeReceivable,
   createPaymentLink,
   financialYear,
@@ -25,6 +26,7 @@ import {
   simulatePayment,
   toCents,
   unmatchedFunds,
+  updateClient,
   usd,
   withdraw,
   type FxQuote,
@@ -288,6 +290,36 @@ export async function simulatePaymentAction(id: string): Promise<ActionResult> {
 }
 
 // ---------- clients ----------
+
+export async function updateClientAction(id: string, _prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await guard();
+  const v = (k: string) => String(form.get(k) ?? "").trim();
+  const input = {
+    nickname: v("nickname") || v("name"),
+    name: v("name"),
+    email: v("email"),
+    line1: v("line1"),
+    line2: v("line2"),
+    city: v("city"),
+    state: v("state"),
+    postalCode: v("postalCode"),
+    country: v("country").toUpperCase(),
+  };
+  if (!input.name || !input.email || !input.line1 || !input.city || !input.postalCode || input.country.length !== 2)
+    return { error: "Fill in name, email, street, city, postcode and a 2-letter country code (e.g. US, GB)." };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) return { error: "Enter a valid billing email." };
+  try {
+    clearXflowCache();
+    const current = (await getPartners()).find((p) => p.id === id);
+    if (!current) return { error: "That client wasn't found in Xflow." };
+    // The tax ID lives here (Xflow doesn't keep one); it's filled in on new invoices for this client.
+    await db.clientProfile.upsert({ where: { accountId: id }, update: { taxId: v("taxId") || null }, create: { accountId: id, taxId: v("taxId") || null } });
+    await updateClient(current, input);
+    return done(`/admin/billing/clients/${id}`, "Saved. New invoices for this client use these details.");
+  } catch (err) {
+    return fail(err);
+  }
+}
 
 export async function createClientAction(_prev: ActionResult, form: FormData): Promise<ActionResult> {
   await guard();
